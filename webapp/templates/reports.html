@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Reports — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Reports</h1>
+    <p>A plain-language monthly summary you can export.</p>
+</header>
+
+<div class="card mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <input type="month" id="monthPicker" class="form-control" style="max-width: 200px;">
+        <button class="btn btn-outline-secondary" onclick="loadReport()">View</button>
+        <a id="exportCsv" class="btn btn-outline-secondary" href="#">Export CSV</a>
+        <a id="exportPdf" class="btn btn-outline-secondary" href="#">Export PDF</a>
+    </div>
+</div>
+
+<div id="loadingState" class="state-placeholder">Building your report&hellip;</div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load the report. <button class="btn btn-sm btn-outline-secondary" onclick="loadReport()">Retry</button></div>
+
+<div id="reportContent" class="d-none">
+    <div class="card">
+        <h3>Summary</h3>
+        <p id="summaryText" class="fs-5"></p>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card">
+                <h3>Spending by Category</h3>
+                <div id="categoryList"></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <h3>Goal Progress</h3>
+                <div id="goalList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function currentMonth() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+document.getElementById('monthPicker').value = currentMonth();
+
+async function loadReport() {
+    const month = document.getElementById('monthPicker').value || currentMonth();
+    document.getElementById('exportCsv').href = `/api/v1/reports/monthly/export.csv?month=${month}`;
+    document.getElementById('exportPdf').href = `/api/v1/reports/monthly/export.pdf?month=${month}`;
+
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('reportContent').classList.add('d-none');
+
+    try {
+        const res = await apiFetch(`/api/v1/reports/monthly?month=${month}`);
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        renderReport(data);
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('reportContent').classList.remove('d-none');
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderReport(data) {
+    let summary = `You spent ${formatINR(data.total_spent)} in ${data.month}`;
+    if (data.pct_change_vs_last_month !== null && data.pct_change_vs_last_month !== undefined) {
+        const dir = data.pct_change_vs_last_month >= 0 ? 'up' : 'down';
+        summary += `, ${dir} ${Math.abs(data.pct_change_vs_last_month)}% from last month`;
+    }
+    summary += '. ';
+    if (data.biggest_category) {
+        summary += `Your biggest category was ${data.biggest_category.category_id} at ${formatINR(data.biggest_category.amount)}. `;
+    }
+    summary += `You have ${data.subscription_count} active subscription${data.subscription_count === 1 ? '' : 's'} costing ${formatINR(data.subscription_annual_cost)}/year, `;
+    summary += `and ${data.alert_count} alert${data.alert_count === 1 ? '' : 's'} this month.`;
+    document.getElementById('summaryText').innerText = summary;
+
+    document.getElementById('categoryList').innerHTML = data.categories.length
+        ? data.categories.map(c => `<div class="d-flex justify-content-between border-bottom py-2">
+            <span>${escapeHtml(c.category_id)}</span><span>${formatINR(c.amount)}</span></div>`).join('')
+        : '<div class="state-placeholder">No spending this month.</div>';
+
+    document.getElementById('goalList').innerHTML = data.goals.length
+        ? data.goals.map(g => `<div class="d-flex justify-content-between border-bottom py-2">
+            <span>${escapeHtml(g.name)}</span><span>${formatINR(g.target_amount)} by ${escapeHtml(g.deadline)} (${g.days_left}d left)</span></div>`).join('')
+        : '<div class="state-placeholder">No goals set.</div>';
+}
+
+loadReport();
+</script>
+{% endblock %}

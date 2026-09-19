@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Model Info — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>About the Models</h1>
+    <p>What's actually powering your alerts and forecasts, measured honestly.</p>
+</header>
+
+<div id="loadingState" class="state-placeholder">Loading model info&hellip;</div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load model info. <button class="btn btn-sm btn-outline-secondary" onclick="loadModelInfo()">Retry</button></div>
+
+<div id="content" class="row g-3 d-none">
+    <div class="col-md-6">
+        <div class="card">
+            <h3>Unusual-Activity Detection</h3>
+            <p style="color: var(--text-secondary);">Flags transactions that look unusual compared with <em>your own</em> normal spending. It cannot tell whether a transaction is actually fraud &mdash; only that it deserves a look.</p>
+            <div id="fraudInfo"></div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <h3>Cash Flow Forecast</h3>
+            <div id="cashflowInfo"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadModelInfo() {
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('content').classList.add('d-none');
+
+    try {
+        const res = await apiFetch('/api/v1/models/info');
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        renderInfo(data);
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('content').classList.remove('d-none');
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderInfo(data) {
+    const fraud = data.fraud_model;
+    document.getElementById('fraudInfo').innerHTML = fraud ? `
+        <p><strong>${fraud.algorithm}</strong></p>
+        <p style="color: var(--text-secondary);">${fraud.plain_language}</p>
+        <ul class="mb-0">
+            <li>Trained: ${fraud.training_date ? new Date(fraud.training_date).toLocaleDateString() : 'unknown'}</li>
+            <li>Training rows: ${fraud.training_rows ?? '--'}</li>
+            ${fraud.metrics && fraud.metrics.precision !== undefined ? `
+            <li>Precision: ${(fraud.metrics.precision * 100).toFixed(1)}%</li>
+            <li>Recall: ${(fraud.metrics.recall * 100).toFixed(1)}%</li>
+            <li>Confusion matrix: TP=${fraud.metrics.confusion_matrix?.tp ?? '--'}, FP=${fraud.metrics.confusion_matrix?.fp ?? '--'}, FN=${fraud.metrics.confusion_matrix?.fn ?? '--'}, TN=${fraud.metrics.confusion_matrix?.tn ?? '--'}</li>
+            ` : ''}
+        </ul>
+    ` : '<div class="state-placeholder">Not trained yet.</div>';
+
+    const cf = data.cashflow_model;
+    document.getElementById('cashflowInfo').innerHTML = cf ? `
+        <p><strong>${cf.algorithm}</strong></p>
+        <p style="color: var(--text-secondary);">${cf.plain_language}</p>
+        <ul class="mb-0">
+            <li>Trained: ${cf.training_date ? new Date(cf.training_date).toLocaleDateString() : 'unknown'}</li>
+            <li>Training rows: ${cf.training_rows ?? '--'}</li>
+            <li>Backtest MAE (model): ${formatINR(cf.metrics?.model_mae ?? 0)}/day</li>
+            <li>Backtest MAE (same period last month): ${formatINR(cf.metrics?.baseline_last_month_mae ?? 0)}/day</li>
+            <li>Backtest MAE (trailing 30-day avg): ${formatINR(cf.metrics?.baseline_trailing_avg_mae ?? 0)}/day</li>
+        </ul>
+    ` : '<div class="state-placeholder">Not trained yet.</div>';
+}
+
+loadModelInfo();
+</script>
+{% endblock %}

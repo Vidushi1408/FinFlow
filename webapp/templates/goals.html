@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Goals — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Savings Goals</h1>
+    <p>Track progress against what you're actually saving each month.</p>
+</header>
+
+<div class="card mb-3">
+    <h3>New Goal</h3>
+    <div class="row g-2">
+        <div class="col-md-4"><input type="text" id="goalName" class="form-control" placeholder="Goal name (e.g. Emergency fund)"></div>
+        <div class="col-md-3"><input type="number" id="goalAmount" class="form-control" placeholder="Target amount (₹)"></div>
+        <div class="col-md-3"><input type="date" id="goalDeadline" class="form-control"></div>
+        <div class="col-md-2"><button class="btn btn-primary w-100" onclick="addGoal()">Add goal</button></div>
+    </div>
+    <div id="goalFormError" class="alert alert-danger py-2 mt-2 mb-0 d-none"></div>
+</div>
+
+<div id="loadingState" class="state-placeholder">Loading goals&hellip;</div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load goals. <button class="btn btn-sm btn-outline-secondary" onclick="loadGoals()">Retry</button></div>
+<div id="emptyState" class="state-placeholder d-none">No goals yet &mdash; add one above.</div>
+
+<div id="goalsGrid" class="row g-3"></div>
+
+<script>
+async function loadGoals() {
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('emptyState').classList.add('d-none');
+    document.getElementById('goalsGrid').innerHTML = '';
+
+    try {
+        const res = await apiFetch('/api/v1/goals');
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        document.getElementById('loadingState').classList.add('d-none');
+
+        if (data.goals.length === 0) {
+            document.getElementById('emptyState').classList.remove('d-none');
+        } else {
+            renderGoals(data.goals);
+        }
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderGoals(goals) {
+    document.getElementById('goalsGrid').innerHTML = goals.map(g => `
+        <div class="col-md-6 col-lg-4">
+            <div class="card">
+                <div class="d-flex justify-content-between align-items-start">
+                    <h3 class="mb-1">${escapeHtml(g.name)}</h3>
+                    <button class="btn btn-sm btn-outline-danger" data-gid="${escapeHtml(g.goal_id)}" onclick="deleteGoal(this.dataset.gid)">&times;</button>
+                </div>
+                <p class="mb-1">Target: ${formatINR(g.target_amount)} by ${escapeHtml(g.deadline)}</p>
+                <p class="mb-1" style="color: var(--text-secondary);">${g.days_left} days left</p>
+                <p class="mb-1">Need to save: <strong>${formatINR(g.required_monthly_saving)}/mo</strong></p>
+                <p class="mb-2" style="color: var(--text-secondary);">You're currently saving ~${formatINR(g.recent_avg_monthly_savings)}/mo</p>
+                <span class="badge ${g.on_track ? 'badge-status-green' : 'badge-status-red'}">
+                    ${g.on_track ? 'On track' : 'Off track'}
+                </span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function showGoalFormError(message) {
+    const el = document.getElementById('goalFormError');
+    el.innerText = message;
+    el.classList.remove('d-none');
+}
+
+function hideGoalFormError() {
+    document.getElementById('goalFormError').classList.add('d-none');
+}
+
+async function addGoal() {
+    hideGoalFormError();
+
+    const nameEl = document.getElementById('goalName');
+    const amountEl = document.getElementById('goalAmount');
+    const deadlineEl = document.getElementById('goalDeadline');
+    const name = nameEl.value.trim();
+    const target_amount = parseFloat(amountEl.value);
+    const deadline = deadlineEl.value;
+
+    const missing = [];
+    if (!name) missing.push('goal name');
+    if (!amountEl.value || isNaN(target_amount) || target_amount <= 0) missing.push('a target amount above 0');
+    if (!deadline) missing.push('a deadline');
+    if (missing.length) {
+        showGoalFormError(`Please fill in: ${missing.join(', ')}.`);
+        return;
+    }
+
+    const res = await apiFetch('/api/v1/goals', { method: 'POST', body: JSON.stringify({ name, target_amount, deadline }) });
+    if (res.ok) {
+        nameEl.value = '';
+        amountEl.value = '';
+        deadlineEl.value = '';
+        loadGoals();
+    } else {
+        const data = await res.json();
+        showGoalFormError(errorMessage(data));
+    }
+}
+
+async function deleteGoal(goalId) {
+    const res = await apiFetch(`/api/v1/goals/${goalId}`, { method: 'DELETE' });
+    if (res.ok) loadGoals();
+}
+
+loadGoals();
+</script>
+{% endblock %}

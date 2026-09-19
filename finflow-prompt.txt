@@ -1,0 +1,136 @@
+Project: FinFlow - Personal Finance Intelligence Platform
+
+OBJECTIVE:
+Build a complete personal finance data warehouse system that ingests bank transaction data, detects fraud, predicts cash flow, and enables interactive budget optimization through a normalized warehouse and REST API.
+
+ARCHITECTURE:
+- Data Ingestion Layer: Consume CSV files and API data (bank exports, investment portfolios)
+- ETL Pipeline: Validate, clean, categorize transactions; detect recurring payments
+- Normalized Data Warehouse: Star schema with fact tables (transactions, balances, investments) and dimension tables (accounts, merchants, dates, categories)
+- ML Models: Isolation Forest for fraud detection; Linear Regression for 30-day cash flow forecasting
+- REST API: Query layer with endpoints for spending summaries, recurring subscriptions, and "what-if" budget scenarios
+- Dashboard: Power BI visualization of spending by category, cash flow trends, fraud alerts
+
+TECH STACK:
+- Database: PostgreSQL (normalized star schema)
+- Backend: Python with pandas, scikit-learn, Flask/FastAPI, psycopg2
+- ML: scikit-learn (IsolationForest, LinearRegression)
+- Visualization: Power BI or Tableau
+- Deployment: Docker, GitHub Actions for CI/CD
+
+DATABASE SCHEMA:
+Dimension Tables:
+- dim_account: account_id, account_type, institution, account_number, credit_limit, opened_date
+- dim_merchant: merchant_id, merchant_name, category, mcc_code
+- dim_category: category_id, category_name, budget_amount
+- dim_date: date_id (YYYYMMDD), date, year, month, quarter, is_holiday
+
+Fact Tables:
+- fact_transactions: transaction_id, account_id, merchant_id, category_id, date_id, amount, transaction_type, is_fraud, is_recurring, created_at
+- fact_account_balance: balance_id, account_id, date_id, opening_balance, closing_balance, inflow, outflow
+- fact_investments: investment_id, account_id, date_id, symbol, quantity, cost_price, current_price, gain_loss
+
+ETL PIPELINE COMPONENTS:
+
+1. Data Ingestion:
+   - ingest_csv_transactions(file_path): Load bank CSV exports with error handling
+   - fetch_api_transactions(api_config): Connect to bank APIs (mock for demo)
+   - fetch_investment_data(portfolio): Fetch market prices for holdings
+
+2. Data Transformation:
+   - clean_transactions(): Remove duplicates, handle missing values, validate amounts/dates
+   - categorize_transactions(): Auto-assign categories (GROCERY, FUEL, FOOD, etc.) based on merchant keywords
+   - detect_recurring_transactions(): Identify subscriptions appearing 3+ times
+
+3. Data Validation:
+   - Flag outliers (amount > 99th percentile)
+   - Check for future-dated transactions
+   - Validate currency consistency
+
+4. Warehouse Loading:
+   - Upsert logic for fact tables
+   - Maintain referential integrity with dim tables
+   - Batch insert for performance (page_size=1000)
+
+ML MODELS:
+
+1. Fraud Detection:
+   - Model: Isolation Forest (unsupervised anomaly detection)
+   - Features: log(amount), transaction_hour, amount_deviation_from_merchant_avg, days_since_similar_transaction
+   - Output: fraud_probability (0-1 scale)
+   - Training: Historical transactions (last 6 months)
+
+2. Cash Flow Prediction:
+   - Model: Linear Regression with rolling averages
+   - Features: 7-day rolling avg spending, 14-day rolling avg, day_of_week
+   - Predict: Daily spending for next 30 days
+   - Output: predicted_daily_spending[], next_30_days_total, budget_vs_predicted
+
+API ENDPOINTS:
+
+GET /api/spending/summary?month=2024-01
+  - Returns: Category breakdown, total spent, transaction count
+
+GET /api/spending/trends?days=90
+  - Returns: Daily spending trend, moving averages
+
+GET /api/fraud/alerts?threshold=0.8
+  - Returns: Flagged transactions with fraud probability
+
+GET /api/insights/subscriptions
+  - Returns: Recurring merchants, annual cost, optimization recommendations
+
+POST /api/what-if/budget
+  - Body: {"reduce_categories": {"ENTERTAINMENT": 0.5}, "add_savings": 5000}
+  - Returns: Projected balance in 6 months, monthly savings impact
+
+POST /api/what-if/investments
+  - Body: {"invest_amount": 10000, "allocation": {"stocks": 0.6, "bonds": 0.4}}
+  - Returns: Projected portfolio value after 1/5/10 years
+
+GET /api/cash-flow/forecast
+  - Returns: 30-day spending forecast, confidence intervals
+
+DELIVERABLES:
+1. PostgreSQL database schema with all tables, indices, constraints
+2. Python scripts for ingestion, transformation, loading (modular, reusable)
+3. ML model training pipeline with evaluation metrics (precision, recall for fraud)
+4. Flask/FastAPI REST API with 6+ endpoints
+5. Sample data generator (CSV files) for testing
+6. Power BI dashboard with:
+   - Spending by category (pie/bar chart)
+   - Cash flow trends (line chart)
+   - Fraud alerts (heatmap by merchant/amount)
+   - Budget vs actual (waterfalls)
+   - Subscription audit (table)
+7. Docker Compose for local development (PostgreSQL + API)
+8. GitHub repo with README, setup instructions, sample queries
+9. Unit tests for transformation logic and ML models
+10. Data quality report (row counts, validation checks, anomalies)
+
+CONSTRAINTS:
+- Support transactions up to 5 years of history
+- Handle 100K+ transactions without performance degradation
+- ML models must train in <5 minutes
+- API responses must be <500ms
+- No hardcoded credentials (use environment variables)
+- Support multi-account, multi-currency scenarios
+
+SAMPLE DATA:
+- Generate 12 months of synthetic transactions (1000-2000/month)
+- Include real merchant names (HDFC, Swiggy, Amazon, Flipkart, etc.)
+- Inject 2-3% fraudulent transactions (unusual amounts, odd hours)
+- Create 5-8 recurring merchants (Netflix, Spotify, Gym, etc.)
+
+DOCUMENTATION:
+- Architecture diagram (Lucidchart/Miro format)
+- Database entity-relationship diagram
+- API documentation (Swagger/OpenAPI)
+- Setup guide (PostgreSQL, Python deps, running pipeline)
+- Example queries for common use cases
+
+DELIVERABLE FORMAT:
+- GitHub repository structure
+- All code production-ready with error handling
+- Logging throughout pipeline
+- Configuration via YAML/env files

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Log in — FinFlow{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="card mt-4">
+            <h3>Log in</h3>
+            <form method="POST" novalidate>
+                {{ form.hidden_tag() }}
+                <div class="mb-3">
+                    {{ form.email.label(class="form-label") }}
+                    {{ form.email(class="form-control" + (" is-invalid" if form.email.errors else ""), type="email") }}
+                    {% for e in form.email.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+                </div>
+                <div class="mb-3">
+                    {{ form.password.label(class="form-label") }}
+                    {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""), type="password") }}
+                    {% for e in form.password.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+                </div>
+                <div class="form-check mb-3">
+                    {{ form.remember(class="form-check-input") }}
+                    {{ form.remember.label(class="form-check-label") }}
+                </div>
+                {{ form.submit(class="btn btn-primary w-100") }}
+            </form>
+            <p class="text-center mt-3 mb-0"><small>New to FinFlow? <a href="{{ url_for('auth.signup') }}">Sign up</a></small></p>
+            <p class="text-center mt-1 mb-0"><small style="color: var(--text-secondary);">Demo account: any generated user's email, password <code>demo1234</code></small></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

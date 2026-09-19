@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Budgets — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Budgets</h1>
+    <p>Set a monthly limit per category and see where you stand.</p>
+</header>
+
+<div id="loadingState" class="state-placeholder">Loading budgets&hellip;</div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load budgets. <button class="btn btn-sm btn-outline-secondary" onclick="loadBudgets()">Retry</button></div>
+
+<div id="budgetGrid" class="row g-3 d-none"></div>
+
+<script>
+async function loadBudgets() {
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('budgetGrid').classList.add('d-none');
+
+    try {
+        const res = await apiFetch('/api/v1/budgets');
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        renderBudgets(data.budgets);
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('budgetGrid').classList.remove('d-none');
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderBudgets(budgets) {
+    const grid = document.getElementById('budgetGrid');
+    grid.innerHTML = budgets.map(b => {
+        const limit = b.monthly_limit;
+        const pct = limit ? Math.min((b.spent_this_month / limit) * 100, 100) : 0;
+        const barClass = b.status === 'red' ? 'bg-danger' : b.status === 'amber' ? 'bg-warning' : 'bg-success';
+        return `
+        <div class="col-md-6 col-lg-4">
+            <div class="card">
+                <h3>${escapeHtml(b.category_name)}</h3>
+                <p class="mb-1">${formatINR(b.spent_this_month)} ${limit ? 'of ' + formatINR(limit) : 'spent (no limit set)'}</p>
+                ${limit ? `<div class="progress mb-2"><div class="progress-bar ${barClass}" style="width:${pct}%"></div></div>` : ''}
+                <p class="metric-sub mb-3">Projected month-end: ${formatINR(b.projected_month_end)}</p>
+                <div class="d-flex gap-2">
+                    <input type="number" min="0" class="form-control form-control-sm" placeholder="Set limit" value="${limit || ''}" id="limit-${escapeHtml(b.category_id)}">
+                    <button class="btn btn-sm btn-outline-primary" data-cat="${escapeHtml(b.category_id)}" onclick="saveBudget(this.dataset.cat)">Save</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function saveBudget(categoryId) {
+    const input = document.getElementById(`limit-${categoryId}`);
+    const value = parseFloat(input.value);
+    if (isNaN(value) || value < 0) { alert('Enter a valid limit.'); return; }
+
+    const res = await apiFetch('/api/v1/budgets', {
+        method: 'POST',
+        body: JSON.stringify({ category_id: categoryId, monthly_limit: value })
+    });
+    if (res.ok) {
+        loadBudgets();
+    } else {
+        const data = await res.json();
+        alert(errorMessage(data, 'Could not save budget.'));
+    }
+}
+
+loadBudgets();
+</script>
+{% endblock %}

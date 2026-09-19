@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: finflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d finflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  seed:
+    build: .
+    command: python scripts/seed_demo.py
+    environment:
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=finflow
+      - PYTHONPATH=/app
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+
+  webapp:
+    build: .
+    command: gunicorn --bind 0.0.0.0:8000 webapp.app:app
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=finflow
+      # Leave unset for a random per-start key (fine for one worker, but logins reset on restart).
+      # For a stable key, set SECRET_KEY in a .env next to this file. In production it is mandatory.
+      - SECRET_KEY=${SECRET_KEY:-}
+      - FLASK_ENV=${FLASK_ENV:-development}
+      - PYTHONPATH=/app
+    healthcheck:
+      # the slim image has no curl; /health returns 503 (=> urlopen raises) when the DB is unreachable
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    depends_on:
+      db:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+
+volumes:
+  pgdata:

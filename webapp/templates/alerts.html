@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Alerts — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Alerts</h1>
+    <p>Transactions that look unusual compared with your normal spending, with the reasons why. A flag is a prompt to take a look &mdash; not a confirmed fraud.</p>
+</header>
+
+<div class="card mb-3">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+        <label class="mb-0"><small>Sensitivity</small></label>
+        <input type="range" min="0" max="1" step="0.05" id="sensitivity" value="{{ current_user.alert_sensitivity }}" style="max-width: 240px;">
+        <span id="sensitivityValue">{{ current_user.alert_sensitivity }}</span>
+        <small style="color: var(--text-secondary);">Lower = more alerts. Change this permanently in Settings.</small>
+    </div>
+</div>
+
+<div id="loadingState" class="state-placeholder">Checking for anything wrong&hellip;</div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load alerts. <button class="btn btn-sm btn-outline-secondary" onclick="loadAlerts()">Retry</button></div>
+<div id="emptyState" class="state-placeholder d-none">Nothing looks wrong right now.</div>
+
+<div id="alertsList"></div>
+
+<script>
+async function loadAlerts() {
+    const threshold = document.getElementById('sensitivity').value;
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('emptyState').classList.add('d-none');
+    document.getElementById('alertsList').innerHTML = '';
+
+    try {
+        const res = await apiFetch(`/api/v1/fraud/alerts?threshold=${threshold}`);
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        document.getElementById('loadingState').classList.add('d-none');
+
+        if (data.alerts.length === 0) {
+            document.getElementById('emptyState').classList.remove('d-none');
+        } else {
+            renderAlerts(data.alerts);
+        }
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderAlerts(alerts) {
+    document.getElementById('alertsList').innerHTML = alerts.map(a => `
+        <div class="card" id="alert-${escapeHtml(a.transaction_id)}">
+            <div class="d-flex justify-content-between flex-wrap">
+                <div>
+                    <h3 class="mb-1">${escapeHtml(a.merchant_id)} &mdash; ${formatINR(a.amount)}</h3>
+                    <p class="mb-2" style="color: var(--text-secondary);">${escapeHtml(a.date)}</p>
+                    <ul class="mb-2">
+                        ${a.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
+                    </ul>
+                </div>
+                <div class="d-flex flex-column gap-2 align-items-end justify-content-center">
+                    ${a.feedback ? `<span class="badge text-bg-secondary">${a.feedback === 'CONFIRMED_ME' ? 'Marked as you' : 'Reported suspicious'}</span>` : `
+                    <button class="btn btn-sm btn-outline-success" data-tid="${escapeHtml(a.transaction_id)}" onclick="giveFeedback(this.dataset.tid, 'CONFIRMED_ME')">This was me</button>
+                    <button class="btn btn-sm btn-outline-danger" data-tid="${escapeHtml(a.transaction_id)}" onclick="giveFeedback(this.dataset.tid, 'SUSPICIOUS')">Report as suspicious</button>
+                    `}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function giveFeedback(transactionId, feedback) {
+    const res = await apiFetch('/api/v1/fraud/feedback', {
+        method: 'POST',
+        body: JSON.stringify({ transaction_id: transactionId, feedback })
+    });
+    if (res.ok) loadAlerts();
+}
+
+document.getElementById('sensitivity').addEventListener('change', function () {
+    document.getElementById('sensitivityValue').innerText = this.value;
+    loadAlerts();
+});
+
+loadAlerts();
+</script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Subscriptions — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Subscriptions</h1>
+    <p>Recurring charges we've detected from your cadence and amount stability.</p>
+</header>
+
+<div class="card mb-3">
+    <h3>Total Annual Subscription Cost</h3>
+    <p class="metric" id="totalAnnual">--</p>
+</div>
+
+<div id="loadingState" class="state-placeholder">Looking for recurring charges&hellip;</div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load subscriptions. <button class="btn btn-sm btn-outline-secondary" onclick="loadSubscriptions()">Retry</button></div>
+<div id="emptyState" class="state-placeholder d-none">No recurring charges detected yet &mdash; need at least 3 regular payments to a merchant.</div>
+
+<div class="table-responsive d-none" id="tableWrap">
+    <table>
+        <thead>
+            <tr><th>Merchant</th><th>Cadence</th><th>Typical Amount</th><th>Next Expected</th><th>Annual Cost</th><th></th></tr>
+        </thead>
+        <tbody id="subsBody"></tbody>
+    </table>
+</div>
+
+<script>
+async function loadSubscriptions() {
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('emptyState').classList.add('d-none');
+    document.getElementById('tableWrap').classList.add('d-none');
+
+    try {
+        const res = await apiFetch('/api/v1/insights/subscriptions');
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('totalAnnual').innerText = formatINR(data.total_annual_cost);
+
+        if (data.subscriptions.length === 0) {
+            document.getElementById('emptyState').classList.remove('d-none');
+        } else {
+            document.getElementById('tableWrap').classList.remove('d-none');
+            renderSubs(data.subscriptions);
+        }
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderSubs(subs) {
+    document.getElementById('subsBody').innerHTML = subs.map(s => `
+        <tr>
+            <td>${escapeHtml(s.merchant_id)}</td>
+            <td>${escapeHtml(s.cadence)}</td>
+            <td>${formatINR(s.typical_amount)}</td>
+            <td>${escapeHtml(s.next_expected_date)}</td>
+            <td>${formatINR(s.annualized_cost)}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-warning" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" onclick="override(this.dataset.acc, this.dataset.merchant, 'CANCEL_CANDIDATE')">Cancel candidate</button>
+                <button class="btn btn-sm btn-outline-secondary" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" onclick="override(this.dataset.acc, this.dataset.merchant, 'NOT_SUBSCRIPTION')">Not a subscription</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function override(accountId, merchantId, status) {
+    const res = await apiFetch('/api/v1/insights/subscriptions/override', {
+        method: 'POST',
+        body: JSON.stringify({ account_id: accountId, merchant_id: merchantId, status })
+    });
+    if (res.ok) loadSubscriptions();
+}
+
+loadSubscriptions();
+</script>
+{% endblock %}

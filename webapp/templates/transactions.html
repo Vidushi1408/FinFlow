@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Transactions — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Transactions</h1>
+    <p>Search, filter, and fix categories. Click any category to edit it.</p>
+</header>
+
+<div class="card">
+    <div class="row g-2 mb-3">
+        <div class="col-md-3"><input type="text" id="fSearch" class="form-control" placeholder="Search merchant&hellip;"></div>
+        <div class="col-md-2">
+            <select id="fType" class="form-select">
+                <option value="">All types</option>
+                <option value="DEBIT">Debit</option>
+                <option value="CREDIT">Credit</option>
+            </select>
+        </div>
+        <div class="col-md-2"><input type="date" id="fFrom" class="form-control"></div>
+        <div class="col-md-2"><input type="date" id="fTo" class="form-control"></div>
+        <div class="col-md-3">
+            <label class="form-label mb-0 me-2"><small>Upload a CSV:</small></label>
+            <input type="file" id="uploadInput" accept=".csv" class="form-control form-control-sm">
+        </div>
+    </div>
+
+    <div id="uploadPanel" class="mb-3"></div>
+    <div id="txNotice" class="alert alert-success py-2 d-none"></div>
+
+    <div id="loadingState" class="state-placeholder">Loading transactions&hellip;</div>
+    <div id="errorState" class="state-placeholder d-none">Couldn't load transactions. <button class="btn btn-sm btn-outline-secondary" onclick="loadTransactions(1)">Retry</button></div>
+    <div id="emptyState" class="state-placeholder d-none">No transactions match these filters yet.</div>
+
+    <div class="table-responsive d-none" id="tableWrap">
+        <table>
+            <thead>
+                <tr><th>Date</th><th>Merchant</th><th>Category</th><th>Type</th><th class="text-end">Amount</th></tr>
+            </thead>
+            <tbody id="txBody"></tbody>
+        </table>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <small id="pageInfo" style="color: var(--text-secondary);"></small>
+        <div>
+            <button class="btn btn-sm btn-outline-secondary" id="prevPage">Previous</button>
+            <button class="btn btn-sm btn-outline-secondary" id="nextPage">Next</button>
+        </div>
+    </div>
+</div>
+
+<datalist id="categoryOptions"></datalist>
+
+<script>
+let currentPage = 1;
+const PAGE_SIZE = 25;
+let categories = [];
+
+async function loadCategories() {
+    const res = await apiFetch('/api/v1/budgets');
+    if (!res.ok) return;
+    const data = await res.json();
+    categories = data.budgets.map(b => b.category_id);
+    const list = document.getElementById('categoryOptions');
+    list.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}">`).join('');
+}
+
+function buildQuery(page) {
+    const params = new URLSearchParams({ page, page_size: PAGE_SIZE });
+    const search = document.getElementById('fSearch').value.trim();
+    const type = document.getElementById('fType').value;
+    const from = document.getElementById('fFrom').value;
+    const to = document.getElementById('fTo').value;
+    if (search) params.set('search', search);
+    if (type) params.set('type', type);
+    if (from) params.set('date_from', from);
+    if (to) params.set('date_to', to);
+    return params.toString();
+}
+
+async function loadTransactions(page) {
+    currentPage = page;
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('emptyState').classList.add('d-none');
+    document.getElementById('tableWrap').classList.add('d-none');
+
+    try {
+        const res = await apiFetch(`/api/v1/transactions?${buildQuery(page)}`);
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        document.getElementById('loadingState').classList.add('d-none');
+
+        if (data.transactions.length === 0) {
+            document.getElementById('emptyState').classList.remove('d-none');
+        } else {
+            document.getElementById('tableWrap').classList.remove('d-none');
+            renderRows(data.transactions);
+        }
+
+        const totalPages = Math.max(Math.ceil(data.total / PAGE_SIZE), 1);
+        document.getElementById('pageInfo').innerText = `Page ${data.page} of ${totalPages} (${data.total} total)`;
+        document.getElementById('prevPage').disabled = page <= 1;
+        document.getElementById('nextPage').disabled = page >= totalPages;
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderRows(transactions) {
+    const body = document.getElementById('txBody');
+    body.innerHTML = transactions.map(t => `
+        <tr>
+            <td>${new Date(t.transaction_ts).toLocaleString()}</td>
+            <td>${escapeHtml(t.merchant_id)}${t.is_flagged ? ' <span class="badge text-bg-danger" title="Looks unusual compared with your normal activity">unusual</span>' : ''}</td>
+            <td>
+                <span class="editable-category" data-tid="${escapeHtml(t.transaction_id)}" data-cat="${escapeHtml(t.category_id)}">${escapeHtml(t.category_id)}</span>
+            </td>
+            <td>${escapeHtml(t.transaction_type)}</td>
+            <td class="text-end">${formatINR(t.amount)}</td>
+        </tr>
+    `).join('');
+
+    body.querySelectorAll('.editable-category').forEach(el => {
+        el.addEventListener('click', () => editCategory(el));
+    });
+}
+
+function editCategory(el) {
+    const currentVal = el.dataset.cat;
+    const tid = el.dataset.tid;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'd-flex gap-1 align-items-center';
+    wrapper.innerHTML = `
+        <input list="categoryOptions" class="form-control form-control-sm" value="${escapeHtml(currentVal)}" style="width: 140px;">
+        <div class="form-check form-check-inline m-0">
+            <input class="form-check-input" type="checkbox" checked>
+            <label class="form-check-label"><small>all from this payee</small></label>
+        </div>
+        <button class="btn btn-sm btn-primary">Save</button>
+    `;
+    el.replaceWith(wrapper);
+    const input = wrapper.querySelector('input[list]');
+    const checkbox = wrapper.querySelector('input[type=checkbox]');
+    input.focus();
+
+    wrapper.querySelector('button').addEventListener('click', async () => {
+        const newCat = input.value.trim().toUpperCase();
+        if (!newCat) return;
+        const res = await apiFetch(`/api/v1/transactions/${tid}/category`, {
+            method: 'PATCH',
+            body: JSON.stringify({ category_id: newCat, create_rule: checkbox.checked })
+        });
+        if (res.ok) {
+            const result = await res.json();
+            const notice = document.getElementById('txNotice');
+            notice.textContent = result.rule_created
+                ? `Saved. ${result.transactions_updated} transaction${result.transactions_updated === 1 ? '' : 's'} from this payee moved to ${newCat}, and future uploads will follow this rule.`
+                : `Saved. Category changed to ${newCat}.`;
+            notice.classList.remove('d-none');
+            loadTransactions(currentPage);
+        } else {
+            const data = await res.json();
+            alert(errorMessage(data, 'Could not save category.'));
+        }
+    });
+}
+
+document.getElementById('prevPage').addEventListener('click', () => currentPage > 1 && loadTransactions(currentPage - 1));
+document.getElementById('nextPage').addEventListener('click', () => loadTransactions(currentPage + 1));
+['fSearch', 'fType', 'fFrom', 'fTo'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => loadTransactions(1));
+});
+
+document.getElementById('uploadInput').addEventListener('change', function () {
+    if (!this.files.length) return;
+    const file = this.files[0];
+    this.value = '';
+    startUploadFlow(file, document.getElementById('uploadPanel'), { onImported: () => loadTransactions(1) });
+});
+
+loadCategories();
+loadTransactions(1);
+</script>
+{% endblock %}

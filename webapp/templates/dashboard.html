@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Dashboard</h1>
+    <p>Your financial picture at a glance.</p>
+</header>
+
+<div id="loadingState" class="state-placeholder">Loading your dashboard&hellip;</div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load your dashboard. <button class="btn btn-sm btn-outline-secondary" onclick="loadDashboard()">Retry</button></div>
+
+<div id="dashboardContent" class="d-none">
+    <div class="row g-3 mb-1">
+        <div class="col-6 col-lg-3">
+            <div class="card text-center">
+                <h3>Financial Health Score</h3>
+                <p class="metric" id="healthScore">--</p>
+                <p class="metric-sub" id="healthBreakdown"></p>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card text-center">
+                <h3>Current Balance</h3>
+                <p class="metric" id="currentBalance">--</p>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card text-center">
+                <h3>This Month's Income</h3>
+                <p class="metric" id="monthIncome">--</p>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card text-center">
+                <h3>This Month's Spending</h3>
+                <p class="metric" id="monthSpending">--</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-5">
+            <div class="card">
+                <h3>Spending by Category</h3>
+                <canvas id="categoryChart" height="220"></canvas>
+                <div id="categoryEmpty" class="state-placeholder d-none">No spending recorded yet.</div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="card">
+                <h3>6-Month Trend</h3>
+                <canvas id="trendChart" height="220"></canvas>
+                <div id="trendEmpty" class="state-placeholder d-none">Not enough history yet for a trend.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card">
+                <h3>Latest Alerts</h3>
+                <div id="latestAlerts"></div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <h3>Subscriptions Due in 7 Days</h3>
+                <div id="upcomingSubs"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let categoryChartInstance = null;
+let trendChartInstance = null;
+
+async function loadDashboard() {
+    document.getElementById('loadingState').classList.remove('d-none');
+    document.getElementById('errorState').classList.add('d-none');
+    document.getElementById('dashboardContent').classList.add('d-none');
+
+    try {
+        const res = await apiFetch('/api/v1/dashboard/summary');
+        if (!res.ok) throw new Error('request failed');
+        const data = await res.json();
+        renderDashboard(data);
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('dashboardContent').classList.remove('d-none');
+    } catch (err) {
+        document.getElementById('loadingState').classList.add('d-none');
+        document.getElementById('errorState').classList.remove('d-none');
+    }
+}
+
+function renderDashboard(data) {
+    document.getElementById('healthScore').innerText = data.financial_health.score;
+    const c = data.financial_health.components;
+    document.getElementById('healthBreakdown').innerText = c.savings_rate !== undefined
+        ? `Savings ${c.savings_rate}% · Budget ${c.budget_adherence}% · Subs ${c.subscription_load}% · Buffer ${c.emergency_buffer_days}d`
+        : '';
+    document.getElementById('currentBalance').innerText = formatINR(data.current_balance);
+    document.getElementById('monthIncome').innerText = formatINR(data.this_month.income);
+    document.getElementById('monthSpending').innerText = formatINR(data.this_month.spending);
+
+    const catEl = document.getElementById('categoryChart');
+    if (data.spending_by_category.length === 0) {
+        catEl.classList.add('d-none');
+        document.getElementById('categoryEmpty').classList.remove('d-none');
+    } else {
+        catEl.classList.remove('d-none');
+        document.getElementById('categoryEmpty').classList.add('d-none');
+        if (categoryChartInstance) categoryChartInstance.destroy();
+        categoryChartInstance = new Chart(catEl, {
+            type: 'doughnut',
+            data: {
+                labels: data.spending_by_category.map(c => c.category_id),
+                datasets: [{
+                    data: data.spending_by_category.map(c => c.amount),
+                    backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16', '#6366f1', '#f97316']
+                }]
+            },
+            options: { plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+
+    const trendEl = document.getElementById('trendChart');
+    if (data.trend_6_months.length === 0) {
+        trendEl.classList.add('d-none');
+        document.getElementById('trendEmpty').classList.remove('d-none');
+    } else {
+        trendEl.classList.remove('d-none');
+        document.getElementById('trendEmpty').classList.add('d-none');
+        if (trendChartInstance) trendChartInstance.destroy();
+        trendChartInstance = new Chart(trendEl, {
+            type: 'line',
+            data: {
+                labels: data.trend_6_months.map(t => t.month),
+                datasets: [
+                    { label: 'Spending', data: data.trend_6_months.map(t => t.spending), borderColor: '#ef4444', tension: 0.3 },
+                    { label: 'Income', data: data.trend_6_months.map(t => t.income), borderColor: '#10b981', tension: 0.3 }
+                ]
+            }
+        });
+    }
+
+    const alertsEl = document.getElementById('latestAlerts');
+    alertsEl.innerHTML = data.latest_alerts.length
+        ? data.latest_alerts.map(a => `<div class="d-flex justify-content-between border-bottom py-2">
+            <span>${escapeHtml(a.merchant_id)}</span><span class="text-danger">${formatINR(a.amount)}</span></div>`).join('')
+        : '<div class="state-placeholder">No alerts. Nothing looks wrong right now.</div>';
+
+    const subsEl = document.getElementById('upcomingSubs');
+    subsEl.innerHTML = data.subscriptions_due_soon.length
+        ? data.subscriptions_due_soon.map(s => `<div class="d-flex justify-content-between border-bottom py-2">
+            <span>${escapeHtml(s.merchant_id)}</span><span>${formatINR(s.typical_amount)} on ${escapeHtml(s.next_expected_date)}</span></div>`).join('')
+        : '<div class="state-placeholder">Nothing due this week.</div>';
+}
+
+loadDashboard();
+</script>
+{% endblock %}

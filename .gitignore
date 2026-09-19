@@ -1,0 +1,35 @@
+# Environments
+.env
+.venv
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data files (mock or actual)
+*.csv
+*.db
+*.sqlite3
+
+# Model artifacts
+*.pkl
+*.joblib
+ml/reports/
+
+# IDEs and OS files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+models/
+
+# Test/coverage artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/

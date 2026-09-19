@@ -1,0 +1,1631 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "FinFlow API",
+    "version": "1.0.0",
+    "description": "All endpoints require an authenticated session (Flask-Login cookie, set by /login) and are scoped to the logged-in user's own accounts. State-changing requests (POST/PATCH/DELETE) also require a CSRF token, sent as header `X-CSRFToken` (get one from the `csrf-token` <meta> tag on any page, or the `csrf_token` hidden field on the login/signup forms)."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session"
+      }
+    },
+    "parameters": {
+      "CsrfHeader": {
+        "name": "X-CSRFToken",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Required on POST/PATCH/DELETE."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "sessionCookie": []
+    }
+  ],
+  "paths": {
+    "/budgets": {
+      "get": {
+        "summary": "List per-category budgets with this-month actuals and status",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "month": {
+                      "type": "string",
+                      "example": "2026-09"
+                    },
+                    "budgets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category_id": {
+                            "type": "string"
+                          },
+                          "category_name": {
+                            "type": "string"
+                          },
+                          "monthly_limit": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "spent_this_month": {
+                            "type": "number"
+                          },
+                          "projected_month_end": {
+                            "type": "number"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "green",
+                              "amber",
+                              "red",
+                              null
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Set (or update) a category's monthly budget limit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "category_id",
+                  "monthly_limit"
+                ],
+                "properties": {
+                  "category_id": {
+                    "type": "string"
+                  },
+                  "monthly_limit": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved"
+          },
+          "400": {
+            "description": "Invalid category or limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cash-flow/forecast": {
+      "get": {
+        "summary": "30-day spend forecast with a prediction interval",
+        "description": "Uses whichever strategy (regression or a naive baseline) won the training-time backtest; `strategy` and `backtest_mae` in the response say which.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "forecast_30_days_total": {
+                      "type": "number"
+                    },
+                    "strategy": {
+                      "type": "string",
+                      "enum": [
+                        "model",
+                        "same_period_last_month",
+                        "trailing_30d_avg"
+                      ]
+                    },
+                    "backtest_mae": {
+                      "type": "number"
+                    },
+                    "daily_forecasts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "predicted_amount": {
+                            "type": "number"
+                          },
+                          "lower_bound": {
+                            "type": "number"
+                          },
+                          "upper_bound": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/summary": {
+      "get": {
+        "summary": "Everything the dashboard needs in one call",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "current_balance": {
+                      "type": "number"
+                    },
+                    "financial_health": {
+                      "type": "object",
+                      "properties": {
+                        "score": {
+                          "type": "number"
+                        },
+                        "components": {
+                          "type": "object",
+                          "properties": {
+                            "savings_rate": {
+                              "type": "number"
+                            },
+                            "budget_adherence": {
+                              "type": "number"
+                            },
+                            "subscription_load": {
+                              "type": "number"
+                            },
+                            "emergency_buffer_days": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "this_month": {
+                      "type": "object",
+                      "properties": {
+                        "income": {
+                          "type": "number"
+                        },
+                        "spending": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "spending_by_category": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category_id": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "trend_6_months": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "month": {
+                            "type": "string"
+                          },
+                          "spending": {
+                            "type": "number"
+                          },
+                          "income": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "latest_alerts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "subscriptions_due_soon": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fraud/alerts": {
+      "get": {
+        "summary": "Flagged transactions with plain-language explanations",
+        "parameters": [
+          {
+            "name": "threshold",
+            "in": "query",
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "Defaults to the user's alert_sensitivity setting."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "threshold": {
+                      "type": "number"
+                    },
+                    "alerts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "transaction_id": {
+                            "type": "string"
+                          },
+                          "merchant_id": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "number"
+                          },
+                          "date": {
+                            "type": "string"
+                          },
+                          "fraud_probability": {
+                            "type": "number"
+                          },
+                          "is_flagged": {
+                            "type": "boolean"
+                          },
+                          "reasons": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "feedback": {
+                            "type": "string",
+                            "nullable": true,
+                            "enum": [
+                              "CONFIRMED_ME",
+                              "SUSPICIOUS",
+                              null
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "threshold out of [0,1]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fraud/feedback": {
+      "post": {
+        "summary": "Record \"This was me\" / \"Report as suspicious\" on an alert",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "transaction_id",
+                  "feedback"
+                ],
+                "properties": {
+                  "transaction_id": {
+                    "type": "string"
+                  },
+                  "feedback": {
+                    "type": "string",
+                    "enum": [
+                      "CONFIRMED_ME",
+                      "SUSPICIOUS"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved"
+          },
+          "400": {
+            "description": "Invalid feedback value"
+          },
+          "404": {
+            "description": "Transaction not found (or not owned by this user)"
+          }
+        }
+      }
+    },
+    "/goals": {
+      "get": {
+        "summary": "List savings goals with on/off-track status",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a savings goal",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "target_amount",
+                  "deadline"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "target_amount": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "deadline": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Must be in the future."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid goal payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/goals/{goal_id}": {
+      "delete": {
+        "summary": "Delete a savings goal",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          },
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insights/subscriptions": {
+      "get": {
+        "summary": "Detected recurring charges (cadence + amount-stability based)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/insights/subscriptions/override": {
+      "post": {
+        "summary": "Mark a detected subscription as a cancel candidate or not a subscription",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "account_id",
+                  "merchant_id",
+                  "status"
+                ],
+                "properties": {
+                  "account_id": {
+                    "type": "string"
+                  },
+                  "merchant_id": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "CANCEL_CANDIDATE",
+                      "NOT_SUBSCRIPTION"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved"
+          },
+          "400": {
+            "description": "Invalid status"
+          },
+          "404": {
+            "description": "Unknown account"
+          }
+        }
+      }
+    },
+    "/models/info": {
+      "get": {
+        "summary": "Model version, training date, and metrics in plain language",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/reports/monthly": {
+      "get": {
+        "summary": "Plain-language monthly summary",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}$"
+            },
+            "description": "Defaults to the current month."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Invalid month format"
+          }
+        }
+      }
+    },
+    "/reports/monthly/export.csv": {
+      "get": {
+        "summary": "Export that month's transactions as CSV",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file",
+            "content": {
+              "text/csv": {}
+            }
+          }
+        }
+      }
+    },
+    "/reports/monthly/export.pdf": {
+      "get": {
+        "summary": "Export that month's report as a PDF",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF file",
+            "content": {
+              "application/pdf": {}
+            }
+          }
+        }
+      }
+    },
+    "/settings/profile": {
+      "post": {
+        "summary": "Update profile (name, currency, alert sensitivity)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "currency",
+                  "alert_sensitivity"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string",
+                    "enum": [
+                      "INR",
+                      "USD",
+                      "EUR"
+                    ]
+                  },
+                  "alert_sensitivity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved"
+          },
+          "400": {
+            "description": "Invalid payload"
+          }
+        }
+      }
+    },
+    "/settings/delete-data": {
+      "post": {
+        "summary": "Permanently delete all of the user's financial data",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "confirm"
+                ],
+                "properties": {
+                  "confirm": {
+                    "type": "string",
+                    "enum": [
+                      "DELETE"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "Missing confirmation"
+          }
+        }
+      }
+    },
+    "/settings/reset-demo": {
+      "post": {
+        "summary": "Wipe the user's data and reload fresh persona-based demo data",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "persona": {
+                    "type": "string",
+                    "enum": [
+                      "student",
+                      "salaried",
+                      "freelancer"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reset"
+          }
+        }
+      }
+    },
+    "/spending/summary": {
+      "get": {
+        "summary": "Category breakdown and total spent for a given month",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Missing or invalid month"
+          }
+        }
+      }
+    },
+    "/spending/trends": {
+      "get": {
+        "summary": "Daily spend + 7-day rolling average over N days",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 90
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "days out of range"
+          }
+        }
+      }
+    },
+    "/transactions": {
+      "get": {
+        "summary": "Paginated, searchable, filterable transaction list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 25,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Matches merchant name."
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "account_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DEBIT",
+                "CREDIT"
+              ]
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "amount_min",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "amount_max",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the caller's own transactions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "page_size": {
+                      "type": "integer"
+                    },
+                    "transactions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "transaction_id": {
+                            "type": "string"
+                          },
+                          "account_id": {
+                            "type": "string"
+                          },
+                          "merchant_id": {
+                            "type": "string"
+                          },
+                          "category_id": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "number"
+                          },
+                          "transaction_type": {
+                            "type": "string",
+                            "enum": [
+                              "DEBIT",
+                              "CREDIT"
+                            ]
+                          },
+                          "transaction_ts": {
+                            "type": "string"
+                          },
+                          "is_fraud": {
+                            "type": "boolean",
+                            "description": "Ground-truth fraud label (only ever set on generated data; used to evaluate the models). Never written by an import or the stream."
+                          },
+                          "is_recurring": {
+                            "type": "boolean"
+                          },
+                          "fraud_score": {
+                            "type": "number",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 1,
+                            "description": "Calibrated 0-1 anomaly probability from the fraud model, set when the row was imported or streamed; null if unscored."
+                          },
+                          "is_flagged": {
+                            "type": "boolean",
+                            "description": "True if fraud_score >= the user's alert sensitivity (the same rule the Alerts page uses) or the row carries a ground-truth label."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filter value"
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/category": {
+      "patch": {
+        "summary": "Edit a transaction's category, optionally creating a standing rule",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          },
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "category_id"
+                ],
+                "properties": {
+                  "category_id": {
+                    "type": "string"
+                  },
+                  "create_rule": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, saves a standing rule for this merchant (for a UPI payment, the payee), re-categorizes all of this user's existing transactions with the same merchant identity, and applies the rule to future uploads."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction_id": {
+                      "type": "string"
+                    },
+                    "category_id": {
+                      "type": "string"
+                    },
+                    "rule_created": {
+                      "type": "boolean"
+                    },
+                    "transactions_updated": {
+                      "type": "integer",
+                      "description": "How many transactions changed category (1 unless a rule was created)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown category"
+          },
+          "404": {
+            "description": "Transaction not found or not owned by this user"
+          }
+        }
+      }
+    },
+    "/transactions/upload": {
+      "post": {
+        "summary": "Import a bank statement CSV",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "CSV, max 10MB. Columns are auto-detected (Date, Description/Narration, Amount or separate Debit/Credit columns); DD/MM/YYYY and Indian number formats are understood."
+                  },
+                  "mapping": {
+                    "type": "string",
+                    "description": "Optional JSON object of field -> column name, as reviewed by the user via /transactions/upload/preview. Which CSV column holds each field. Omit to use the auto-detected mapping (see suggested_mapping in the preview response). Optionally 'balance' (a running-balance column). Either 'amount', or 'debit' and/or 'credit', is required, plus 'date' and 'description'."
+                  },
+                  "opening_balance": {
+                    "type": "string",
+                    "description": "Optional number: the balance just before the first transaction in this file. Only used when the statement has no usable balance column and the file isn't later than what's already imported."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Processed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "transactions_processed": {
+                      "type": "integer",
+                      "description": "Rows read from the file (after cleaning)"
+                    },
+                    "account_id": {
+                      "type": "string"
+                    },
+                    "fraud_alerts_generated": {
+                      "type": "integer"
+                    },
+                    "issues": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "info",
+                              "warning"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "transactions_added": {
+                      "type": "integer",
+                      "description": "Rows that were new and saved"
+                    },
+                    "duplicates_skipped": {
+                      "type": "integer",
+                      "description": "Rows already imported earlier"
+                    },
+                    "existing_account": {
+                      "type": "boolean",
+                      "description": "True if the rows went into the user's existing imported account"
+                    },
+                    "opening_balance": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "opening_balance_source": {
+                      "type": "string",
+                      "enum": [
+                        "statement",
+                        "user",
+                        "unknown",
+                        "existing_account"
+                      ],
+                      "description": "statement = worked out from the file's balance column; user = typed by the user; unknown = no balance column, starts from 0; existing_account = file follows already-imported transactions, so the existing opening balance is kept"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing file, wrong type, too large, unreadable CSV, unmappable columns, or a non-numeric opening_balance"
+          },
+          "500": {
+            "description": "Database error during load"
+          }
+        },
+        "description": "All of a user's imported statements go into ONE account, so importing the same or an overlapping statement again only adds the rows that are new. Existing rows are never overwritten (a category the user corrected stays). The account's balance history is rebuilt from its opening balance plus all transactions."
+      }
+    },
+    "/what-if/budget": {
+      "post": {
+        "summary": "Simulate reducing spend in specific categories",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "add_savings": {
+                    "type": "number",
+                    "default": 0
+                  },
+                  "reduce_categories": {
+                    "type": "object",
+                    "description": "category_id -> reduction fraction (0-1). Keys are whitelisted against dim_category.",
+                    "additionalProperties": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "monthly_savings_impact": {
+                      "type": "number"
+                    },
+                    "projected_balance_6_months": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown category key(s)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/what-if/investments": {
+      "post": {
+        "summary": "Project a lump-sum investment at a blended return rate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "invest_amount": {
+                    "type": "number"
+                  },
+                  "allocation": {
+                    "type": "object",
+                    "properties": {
+                      "stocks": {
+                        "type": "number"
+                      },
+                      "bonds": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "projected_1_year": {
+                      "type": "number"
+                    },
+                    "projected_5_years": {
+                      "type": "number"
+                    },
+                    "projected_10_years": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transactions/upload/preview": {
+      "post": {
+        "summary": "Preview how a CSV would be read, without saving anything",
+        "description": "Returns the detected column mapping, sample rows, the auto-assigned category for each transaction and a summary. If the mapping is unusable this still returns 200 with ready=false and an explanatory 'error', so a UI can let the user pick columns. Pass 'mapping' to re-preview with the user's corrections.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "mapping": {
+                    "type": "string",
+                    "description": "Optional JSON object of field -> column name."
+                  },
+                  "opening_balance": {
+                    "type": "string",
+                    "description": "Optional number: the balance just before the first transaction in this file. Only used when the statement has no usable balance column and the file isn't later than what's already imported."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "row_count": {
+                      "type": "integer"
+                    },
+                    "sample_rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      },
+                      "description": "First raw rows, as strings"
+                    },
+                    "suggested_mapping": {
+                      "type": "object",
+                      "description": "Which CSV column holds each field. Omit to use the auto-detected mapping (see suggested_mapping in the preview response). Either 'amount', or 'debit' and/or 'credit', is required, plus 'date' and 'description'.",
+                      "properties": {
+                        "date": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "amount": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "type": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "debit": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "credit": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "mapping": {
+                      "type": "object",
+                      "description": "Which CSV column holds each field. Omit to use the auto-detected mapping (see suggested_mapping in the preview response). Either 'amount', or 'debit' and/or 'credit', is required, plus 'date' and 'description'.",
+                      "properties": {
+                        "date": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "amount": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "type": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "debit": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "credit": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "ready": {
+                      "type": "boolean",
+                      "description": "True if the mapping produced importable rows"
+                    },
+                    "error": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "issues": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "level": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "preview": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "number"
+                          },
+                          "transaction_type": {
+                            "type": "string",
+                            "enum": [
+                              "DEBIT",
+                              "CREDIT"
+                            ]
+                          },
+                          "category_id": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "category_counts": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer"
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "rows": {
+                          "type": "integer"
+                        },
+                        "debit_count": {
+                          "type": "integer"
+                        },
+                        "credit_count": {
+                          "type": "integer"
+                        },
+                        "total_debit": {
+                          "type": "number"
+                        },
+                        "total_credit": {
+                          "type": "number"
+                        },
+                        "date_from": {
+                          "type": "string"
+                        },
+                        "date_to": {
+                          "type": "string"
+                        },
+                        "already_imported": {
+                          "type": "integer",
+                          "description": "Rows in this file already imported (will be skipped)"
+                        },
+                        "new_rows": {
+                          "type": "integer",
+                          "description": "Rows that would actually be added"
+                        }
+                      }
+                    },
+                    "account": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "is_new": {
+                          "type": "boolean",
+                          "description": "False if rows will be added to the user's existing imported account"
+                        }
+                      }
+                    },
+                    "opening_balance": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "Where the account's opening balance (the balance before its earliest transaction) comes from.",
+                      "properties": {
+                        "value": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "statement",
+                            "user",
+                            "unknown",
+                            "existing_account"
+                          ],
+                          "description": "statement = worked out from the file's balance column; user = typed by the user; unknown = no balance column, starts from 0; existing_account = file follows already-imported transactions, so the existing opening balance is kept"
+                        },
+                        "editable": {
+                          "type": "boolean",
+                          "description": "True when the user may supply their own opening balance"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file, not a .csv, too large, unreadable, or malformed 'mapping'"
+          }
+        }
+      }
+    },
+    "/settings/accounts": {
+      "get": {
+        "summary": "List the current user's accounts with their latest balance",
+        "description": "Account numbers are masked to the last four digits.",
+        "responses": {
+          "200": {
+            "description": "Accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accounts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "account_id": {
+                            "type": "string"
+                          },
+                          "account_type": {
+                            "type": "string"
+                          },
+                          "institution": {
+                            "type": "string"
+                          },
+                          "account_number_masked": {
+                            "type": "string",
+                            "nullable": true,
+                            "example": "\u2022\u2022\u2022\u20221234"
+                          },
+                          "opened_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "latest_balance": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

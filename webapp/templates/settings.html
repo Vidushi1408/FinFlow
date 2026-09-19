@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Settings — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Settings</h1>
+    <p>Profile, alert sensitivity, and data management.</p>
+</header>
+
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card">
+            <h3>Profile</h3>
+            <div class="mb-3">
+                <label class="form-label">Name</label>
+                <input type="text" id="settingsName" class="form-control" value="{{ current_user.name }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Currency</label>
+                <select id="settingsCurrency" class="form-select">
+                    <option value="INR" {% if current_user.currency == 'INR' %}selected{% endif %}>INR (₹)</option>
+                    <option value="USD" {% if current_user.currency == 'USD' %}selected{% endif %}>USD ($)</option>
+                    <option value="EUR" {% if current_user.currency == 'EUR' %}selected{% endif %}>EUR (€)</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Alert sensitivity: <span id="sensVal">{{ current_user.alert_sensitivity }}</span></label>
+                <input type="range" id="settingsSensitivity" min="0" max="1" step="0.05" class="form-range" value="{{ current_user.alert_sensitivity }}">
+                <small style="color: var(--text-secondary);">Lower = more alerts flagged.</small>
+            </div>
+            <button class="btn btn-primary" onclick="saveProfile()">Save settings</button>
+            <div id="profileMsg" class="mt-2"></div>
+        </div>
+
+        <div class="card">
+            <h3>Category Rules</h3>
+            <p style="color: var(--text-secondary);">Rules you've created from Transactions ("always categorize X as Y") are applied automatically to new uploads. Manage individual transactions there.</p>
+            <a href="{{ url_for('transactions_page') }}" class="btn btn-outline-secondary btn-sm">Go to Transactions</a>
+        </div>
+
+        <div class="card">
+            <h3>Model Info</h3>
+            <p style="color: var(--text-secondary);">See what's powering your unusual-activity alerts and cash flow forecast, and how well they actually perform.</p>
+            <a href="{{ url_for('about_models_page') }}" class="btn btn-outline-secondary btn-sm">View model info</a>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card">
+            <h3>Accounts</h3>
+            <div id="accountsList"><div class="state-placeholder">Loading&hellip;</div></div>
+            <p class="mt-2 mb-0"><small style="color: var(--text-secondary);">Savings goals moved to their own <a href="{{ url_for('goals_page') }}">Goals</a> page.</small></p>
+        </div>
+
+        <div class="card">
+            <h3>Data</h3>
+            <button class="btn btn-outline-secondary me-2" onclick="resetDemo()">Reset demo data</button>
+            <button class="btn btn-outline-danger" onclick="deleteAllData()">Delete all my data</button>
+            <div id="dataMsg" class="mt-2"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('settingsSensitivity').addEventListener('input', e => document.getElementById('sensVal').innerText = e.target.value);
+
+async function loadAccounts() {
+    const el = document.getElementById('accountsList');
+    try {
+        const res = await apiFetch('/api/v1/settings/accounts');
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        el.innerHTML = data.accounts.length ? data.accounts.map(a => `
+            <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+                <div>
+                    <strong>${escapeHtml(a.institution)} ${escapeHtml(a.account_type)}</strong><br>
+                    <small style="color: var(--text-secondary);">${escapeHtml(a.account_number_masked || '')} &middot; opened ${escapeHtml(a.opened_date)}</small>
+                </div>
+                <span>${formatINR(a.latest_balance)}</span>
+            </div>
+        `).join('') : '<div class="state-placeholder">No accounts yet.</div>';
+    } catch (err) {
+        el.innerHTML = '<div class="state-placeholder">Couldn\'t load accounts.</div>';
+    }
+}
+loadAccounts();
+
+async function saveProfile() {
+    const res = await apiFetch('/api/v1/settings/profile', {
+        method: 'POST',
+        body: JSON.stringify({
+            name: document.getElementById('settingsName').value,
+            currency: document.getElementById('settingsCurrency').value,
+            alert_sensitivity: parseFloat(document.getElementById('settingsSensitivity').value)
+        })
+    });
+    const data = await res.json();
+    document.getElementById('profileMsg').innerHTML = res.ok
+        ? '<div class="alert alert-success py-2 mb-0">Saved.</div>'
+        : `<div class="alert alert-danger py-2 mb-0">${escapeHtml(errorMessage(data))}</div>`;
+}
+
+async function resetDemo() {
+    const ok = await confirmTyped({
+        title: 'Reset to demo data?',
+        message: 'This deletes your current transactions, accounts, budgets and goals and replaces them with sample data.',
+        phrase: 'RESET', confirmLabel: 'Reset my data'
+    });
+    if (!ok) return;
+    const res = await apiFetch('/api/v1/settings/reset-demo', { method: 'POST', body: JSON.stringify({ persona: 'salaried' }) });
+    const data = await res.json();
+    document.getElementById('dataMsg').innerHTML = res.ok
+        ? '<div class="alert alert-success py-2 mb-0">Demo data reset.</div>'
+        : `<div class="alert alert-danger py-2 mb-0">${escapeHtml(errorMessage(data))}</div>`;
+}
+
+async function deleteAllData() {
+    const ok = await confirmTyped({
+        title: 'Delete all your data?',
+        message: 'This permanently deletes all your transactions, accounts, budgets and goals. It cannot be undone.',
+        phrase: 'DELETE', confirmLabel: 'Delete everything'
+    });
+    if (!ok) return;
+    const res = await apiFetch('/api/v1/settings/delete-data', { method: 'POST', body: JSON.stringify({ confirm: 'DELETE' }) });
+    const data = await res.json();
+    document.getElementById('dataMsg').innerHTML = res.ok
+        ? '<div class="alert alert-success py-2 mb-0">All data deleted.</div>'
+        : `<div class="alert alert-danger py-2 mb-0">${escapeHtml(errorMessage(data))}</div>`;
+}
+</script>
+{% endblock %}

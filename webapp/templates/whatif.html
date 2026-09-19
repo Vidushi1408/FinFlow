@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Forecast — FinFlow{% endblock %}
+{% block content %}
+<header>
+    <h1>Forecast &amp; What-If</h1>
+    <p>Will I be okay next month?</p>
+</header>
+
+<div class="card">
+    <h3>30-Day Spending Forecast</h3>
+    <div id="forecastLoading" class="state-placeholder">Loading forecast&hellip;</div>
+    <div id="forecastEmpty" class="state-placeholder d-none">Not enough history yet to forecast.</div>
+    <canvas id="forecastChart" height="120" class="d-none"></canvas>
+    <p id="forecastNote" class="metric-sub mt-2 d-none"></p>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card">
+            <h3>Reduce Spending</h3>
+            <div class="mb-3">
+                <label class="form-label">Entertainment reduction: <span id="entVal">20%</span></label>
+                <input type="range" id="entReduction" min="0" max="100" value="20" class="form-range">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Food/Dining reduction: <span id="foodVal">10%</span></label>
+                <input type="range" id="foodReduction" min="0" max="100" value="10" class="form-range">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Additional monthly savings</label>
+                <input type="number" id="extraSavings" class="form-control" value="0">
+            </div>
+            <button class="btn btn-primary w-100" onclick="runSimulation()">Run simulation</button>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card">
+            <h3>Projected Impact</h3>
+            <div id="simEmpty" class="state-placeholder">Adjust the sliders and run a simulation.</div>
+            <div id="simResult" class="d-none">
+                <p class="mb-1">Monthly savings impact</p>
+                <p class="metric" id="monthlyImpact">--</p>
+                <p class="mb-1 mt-3">Projected balance in 6 months</p>
+                <p class="metric" id="projectedBalance">--</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('entReduction').addEventListener('input', e => document.getElementById('entVal').innerText = e.target.value + '%');
+document.getElementById('foodReduction').addEventListener('input', e => document.getElementById('foodVal').innerText = e.target.value + '%');
+
+let forecastChartInstance = null;
+
+async function loadForecast() {
+    try {
+        const res = await apiFetch('/api/v1/cash-flow/forecast');
+        const data = await res.json();
+        document.getElementById('forecastLoading').classList.add('d-none');
+
+        if (!data.daily_forecasts || data.daily_forecasts.length === 0) {
+            document.getElementById('forecastEmpty').classList.remove('d-none');
+            return;
+        }
+
+        const canvas = document.getElementById('forecastChart');
+        canvas.classList.remove('d-none');
+        if (forecastChartInstance) forecastChartInstance.destroy();
+        forecastChartInstance = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: data.daily_forecasts.map(d => d.date),
+                datasets: [
+                    {
+                        label: 'Upper bound',
+                        data: data.daily_forecasts.map(d => d.upper_bound),
+                        borderColor: 'transparent',
+                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                        fill: '+1',
+                        pointRadius: 0,
+                        tension: 0.3
+                    },
+                    {
+                        label: 'Predicted daily spend',
+                        data: data.daily_forecasts.map(d => d.predicted_amount),
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                        tension: 0.3
+                    },
+                    {
+                        label: 'Lower bound',
+                        data: data.daily_forecasts.map(d => d.lower_bound),
+                        borderColor: 'transparent',
+                        pointRadius: 0,
+                        tension: 0.3
+                    }
+                ]
+            },
+            options: {
+                plugins: { legend: { labels: { filter: item => item.text === 'Predicted daily spend' } } }
+            }
+        });
+
+        const noteEl = document.getElementById('forecastNote');
+        noteEl.classList.remove('d-none');
+        const strategyLabel = {
+            model: 'a regression model',
+            same_period_last_month: 'a naive same-period-last-month baseline (it beat the regression in backtesting)',
+            trailing_30d_avg: 'your trailing 30-day average (it beat the regression in backtesting)'
+        }[data.strategy] || 'the model';
+        noteEl.innerText = `Using ${strategyLabel}. Backtest MAE: ${formatINR(data.backtest_mae || 0)}/day. Shaded band is an approximate 80% prediction interval.`;
+    } catch (err) {
+        document.getElementById('forecastLoading').classList.add('d-none');
+        document.getElementById('forecastEmpty').classList.remove('d-none');
+    }
+}
+
+async function runSimulation() {
+    const entRed = parseInt(document.getElementById('entReduction').value) / 100.0;
+    const foodRed = parseInt(document.getElementById('foodReduction').value) / 100.0;
+    const extra = parseFloat(document.getElementById('extraSavings').value) || 0;
+
+    const res = await apiFetch('/api/v1/what-if/budget', {
+        method: 'POST',
+        body: JSON.stringify({
+            reduce_categories: { ENTERTAINMENT: entRed, FOOD: foodRed },
+            add_savings: extra
+        })
+    });
+
+    if (!res.ok) { alert('Could not run simulation.'); return; }
+    const result = await res.json();
+    document.getElementById('simEmpty').classList.add('d-none');
+    document.getElementById('simResult').classList.remove('d-none');
+    document.getElementById('monthlyImpact').innerText = formatINR(result.monthly_savings_impact);
+    document.getElementById('projectedBalance').innerText = formatINR(result.projected_balance_6_months);
+}
+
+loadForecast();
+</script>
+{% endblock %}

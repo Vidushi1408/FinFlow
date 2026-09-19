@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}FinFlow — Personal Finance Intelligence{% endblock %}
+{% block content %}
+<div class="hero text-center">
+    <h1>Where did my money go?<br>Is anything wrong?<br>Will I be okay next month?</h1>
+    <p class="lead mt-3" style="color: var(--text-secondary);">
+        FinFlow answers the three questions that actually matter for young earners &mdash;
+        students on stipends, first-job professionals, and freelancers with irregular income.
+    </p>
+    <div class="d-flex justify-content-center gap-3 mt-4 flex-wrap">
+        <a href="{{ url_for('auth.signup') }}" class="btn btn-primary btn-lg">Sign up</a>
+        <a href="{{ url_for('auth.login') }}" class="btn btn-outline-secondary btn-lg">Try demo / Log in</a>
+    </div>
+</div>
+
+<div class="row g-4 mt-4">
+    <div class="col-md-4">
+        <div class="feature-card">
+            <h3 class="h5">Where did my money go?</h3>
+            <p style="color: var(--text-secondary);">Category breakdowns, spending trends, and a transaction ledger you can search, filter, and fix in one click.</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="feature-card">
+            <h3 class="h5">Is anything wrong?</h3>
+            <p style="color: var(--text-secondary);">Unusual-activity alerts explained in plain language &mdash; not just a score, but why: new merchant, unusual hour, way above your normal spend.</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="feature-card">
+            <h3 class="h5">Will I be okay next month?</h3>
+            <p style="color: var(--text-secondary);">A 30-day balance forecast with an honest uncertainty band, budgets with progress bars, and savings goals that track on/off-pace.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

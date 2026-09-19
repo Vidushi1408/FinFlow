@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lint dependencies
+        run: pip install ruff>=0.6.0
+      - name: Ruff check
+        run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      SECRET_KEY: ci-only-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run tests with coverage (integration tests run against the Postgres service)
+        run: |
+          pytest tests/ -q \
+            --cov=etl --cov=ml --cov=webapp \
+            --cov-report=term-missing \
+            --cov-fail-under=80
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t finflow:ci .
+
+  docker-compose-smoke:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack (db -> seed -> webapp)
+        run: docker compose up -d --build
+      - name: Wait for the webapp to become healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health | tee /tmp/health.json | grep -q '"status":"ok"'; then
+              echo "healthy after ${i} attempt(s):"; cat /tmp/health.json; exit 0
+            fi
+            sleep 5
+          done
+          echo "webapp never became healthy"; exit 1
+      - name: Check the seeded demo login works
+        run: |
+          curl -fsS -c /tmp/cookies -o /tmp/login.html http://localhost:8000/login
+          TOKEN=$(grep -o 'name="csrf_token"[^>]*value="[^"]*"' /tmp/login.html | sed 's/.*value="//;s/"$//')
+          test -n "$TOKEN"
+          curl -sS -b /tmp/cookies -c /tmp/cookies -o /dev/null -w '%{http_code}' \
+            --data-urlencode "csrf_token=$TOKEN" --data-urlencode "email=demo@finflow.app" --data-urlencode "password=demo1234" \
+            http://localhost:8000/login | grep -q 302
+          curl -fsS -b /tmp/cookies http://localhost:8000/api/v1/dashboard/summary | grep -q current_balance
+      - name: Show logs if anything failed
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
