@@ -23,9 +23,4 @@ htmlcov/
 
 # not needed to run the app
 tests/
-*.pptx
-generate_ppt.py
-IMPLEMENTATION_PLAN.md
-PROJECT_CONTEXT_FOR_AI.md
-finflow-prompt.txt
 .DS_Store
