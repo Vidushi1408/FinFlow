@@ -62,3 +62,37 @@ def test_load_dates_populates_dimension(pg_db):
     assert rows == [(2026, 8, 2)]  # a Wednesday
     # Republic Day is an Indian public holiday
     assert query("SELECT is_holiday FROM dim_date WHERE date_id = 20250126") == [(True,)]
+
+
+# --- identifier validation (etl/load/db.py:_validate_identifier) ---
+
+def test_load_data_rejects_a_malicious_table_name():
+    """table_name is interpolated into the query text (psycopg2 can only parameterize values, not
+    identifiers), so a caller passing anything but a plain identifier must be rejected outright."""
+    with pytest.raises(db_module.UnsafeIdentifierError):
+        db_module.load_data(_category_df([("x", "x", 1)]), "dim_category; DROP TABLE dim_user; --")
+
+
+def test_load_data_rejects_a_malicious_column_name():
+    df = pd.DataFrame({"category_id) VALUES ('x'); DROP TABLE dim_user; --": ["x"]})
+    with pytest.raises(db_module.UnsafeIdentifierError):
+        db_module.load_data(df, "dim_category")
+
+
+def test_load_data_rejects_a_malicious_conflict_column():
+    with pytest.raises(db_module.UnsafeIdentifierError):
+        db_module.load_data(_category_df([("x", "x", 1)]), "dim_category", conflict_columns=["category_id; DROP TABLE dim_user; --"])
+
+
+@pytest.mark.parametrize("name", ["dim_category", "_leading_underscore", "MixedCase", "trailing_digits123"])
+def test_validate_identifier_accepts_normal_names(name):
+    assert db_module._validate_identifier(name) == name
+
+
+@pytest.mark.parametrize("name", [
+    "table; DROP TABLE x; --", "table name with spaces", "table-with-dashes", "table.with.dots",
+    "1starts_with_digit", "", "table'quote", 'table"doublequote', "table/*comment*/",
+])
+def test_validate_identifier_rejects_anything_not_a_plain_identifier(name):
+    with pytest.raises(db_module.UnsafeIdentifierError):
+        db_module._validate_identifier(name)

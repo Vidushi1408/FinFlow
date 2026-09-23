@@ -32,7 +32,7 @@ from database.seed_data import setup_database
 from etl.load.db import get_connection
 
 DEMO_EMAIL = os.environ.get("SEED_DEMO_EMAIL", "demo@finflow.app")
-DEMO_PASSWORD = "demo1234"  # matches data_generator.generate_mock_data.DEMO_PASSWORD
+DEMO_PASSWORD = "demo1234"  # nosec B105 - matches data_generator.generate_mock_data.DEMO_PASSWORD, same documented demo credential
 
 SEED_USERS = int(os.environ.get("SEED_USERS", "9"))
 SEED_HISTORY_MONTHS = int(os.environ.get("SEED_HISTORY_MONTHS", "12"))

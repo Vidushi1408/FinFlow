@@ -293,6 +293,19 @@ python scripts/stream_data.py --once                       # single batch, then 
   CDN assets), and the login rate limiter keeps its counts in memory, so it is
   per-process — point Flask-Limiter at Redis before running several workers.
 - Internal errors are logged server-side; clients only see generic messages.
+- **Automated scanning.** CI's `security` job runs `bandit` (static analysis
+  for common Python security issues) against the application code and
+  `pip-audit` (known CVEs) against `requirements.txt`, and blocks
+  `docker-build`/`docker-compose-smoke` if either fails. Every suppressed
+  finding carries an inline `# nosec <rule-id>` comment explaining why it's a
+  false positive for this codebase — see `pyproject.toml`'s `[tool.bandit]`
+  section for the one repo-wide suppression (`random` used only for synthetic
+  demo-data generation, never for tokens/keys/session ids) and
+  `etl/load/db.py`/`webapp/routes/transactions.py` for the two places SQL is
+  built with an f-string: both validate identifiers or use only fixed literal
+  fragments with bound `:params`, and both are covered by tests that attempt
+  actual SQL injection against a real database
+  (`tests/test_integration_db.py`, `tests/test_integration_routes.py`).
 
 ## Performance
 

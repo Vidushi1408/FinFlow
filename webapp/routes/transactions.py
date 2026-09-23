@@ -59,26 +59,26 @@ def list_transactions():
         filters.append("f.amount <= :amount_max")
         params["amount_max"] = amount_max
 
+    # `filters` only ever holds fixed string literals appended above (never anything built from
+    # `search`/`category`/etc directly) -- every actual value flows through `params` as a bound
+    # :placeholder. See tests/test_integration_routes.py for injection-attempt tests against this.
     where_clause = " AND ".join(filters)
 
-    total = g.db.execute(
-        text(f"SELECT COUNT(*) FROM fact_transactions f WHERE {where_clause}"), params
-    ).scalar()
+    count_sql = f"SELECT COUNT(*) FROM fact_transactions f WHERE {where_clause}"  # nosec B608 - see comment above
+    total = g.db.execute(text(count_sql), params).scalar()
 
     params["limit"] = page_size
     params["offset"] = (page - 1) * page_size
 
-    rows = g.db.execute(
-        text(f"""
-            SELECT f.transaction_id, f.account_id, f.merchant_id, f.category_id,
-                   f.amount, f.transaction_type, f.transaction_ts, f.is_fraud, f.is_recurring, f.fraud_score
-            FROM fact_transactions f
-            WHERE {where_clause}
-            ORDER BY f.transaction_ts DESC
-            LIMIT :limit OFFSET :offset
-        """),
-        params
-    ).fetchall()
+    select_sql = f"""
+        SELECT f.transaction_id, f.account_id, f.merchant_id, f.category_id,
+               f.amount, f.transaction_type, f.transaction_ts, f.is_fraud, f.is_recurring, f.fraud_score
+        FROM fact_transactions f
+        WHERE {where_clause}
+        ORDER BY f.transaction_ts DESC
+        LIMIT :limit OFFSET :offset
+    """  # nosec B608 - see comment above
+    rows = g.db.execute(text(select_sql), params).fetchall()
 
     transactions = [{
         "transaction_id": r[0],

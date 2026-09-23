@@ -19,6 +19,21 @@ jobs:
       - name: Ruff check
         run: ruff check .
 
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install scanners
+        run: pip install bandit pip-audit
+      - name: Bandit (static analysis for common security issues)
+        run: bandit -c pyproject.toml -r webapp etl ml scripts database data_generator etl_pipeline.py train_models.py logging_config.py
+      - name: pip-audit (known CVEs in dependencies)
+        run: pip-audit -r requirements.txt
+
   test:
     runs-on: ubuntu-latest
     services:
@@ -59,7 +74,7 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, security, test]
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image
@@ -67,7 +82,7 @@ jobs:
 
   docker-compose-smoke:
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, security, test]
     steps:
       - uses: actions/checkout@v4
       - name: Start the stack (db -> seed -> webapp)

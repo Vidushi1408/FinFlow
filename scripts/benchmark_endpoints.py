@@ -74,7 +74,8 @@ def seed_user_with_history(rows, years=3):
     start = end - timedelta(days=365 * years)
 
     db.load_data(pd.DataFrame([{
-        "user_id": user_id, "name": "Load Test", "email": f"{user_id}@example.com", "password_hash": "x",
+        "user_id": user_id, "name": "Load Test", "email": f"{user_id}@example.com",
+        "password_hash": "x",  # nosec B105 - a throwaway load-test user in a scratch database, never a real login
         "currency": "INR", "onboarded_at": datetime.now(),
     }]), "dim_user", conflict_columns=["user_id"])
     db.load_data(pd.DataFrame([{

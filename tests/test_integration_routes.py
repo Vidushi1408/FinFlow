@@ -234,3 +234,49 @@ def test_saved_rule_is_applied_to_the_next_upload_preview(make_client, world):
                        content_type="multipart/form-data").get_json()
 
     assert body["preview"][0]["category_id"] == "SHOPPING"  # a different reference number, same payee
+
+
+# --- SQL injection attempts against the dynamic filter clause in list_transactions ---
+
+def _table_exists(name):
+    return query("SELECT to_regclass(%s) IS NOT NULL", (name,))[0][0]
+
+
+SQLI_PAYLOADS = [
+    "'; DROP TABLE fact_transactions; --",
+    "x' OR '1'='1",
+    "x' UNION SELECT transaction_id,account_id,merchant_id,category_id,amount,transaction_type,transaction_ts,is_fraud,is_recurring,fraud_score FROM fact_transactions WHERE account_id != :account_ids --",
+    "'; UPDATE fact_transactions SET amount = 0; --",
+]
+
+
+@pytest.mark.parametrize("payload", SQLI_PAYLOADS)
+def test_transactions_search_treats_injection_attempts_as_literal_text(make_client, world, payload):
+    alice = make_client("alice")
+    before_count = query("SELECT count(*) FROM fact_transactions")[0][0]
+
+    response = alice.get("/api/v1/transactions", query_string={"search": payload})
+
+    assert response.status_code == 200
+    assert response.get_json()["transactions"] == []          # no merchant literally contains the payload
+    assert query("SELECT count(*) FROM fact_transactions")[0][0] == before_count   # nothing was dropped/updated
+    assert _table_exists("fact_transactions")                                       # table still exists
+
+
+@pytest.mark.parametrize("payload", SQLI_PAYLOADS)
+def test_transactions_category_filter_treats_injection_attempts_as_literal_text(make_client, world, payload):
+    alice = make_client("alice")
+    before_count = query("SELECT count(*) FROM fact_transactions")[0][0]
+
+    response = alice.get("/api/v1/transactions", query_string={"category": payload})
+
+    assert response.status_code == 200
+    assert response.get_json()["transactions"] == []
+    assert query("SELECT count(*) FROM fact_transactions")[0][0] == before_count
+
+
+def test_transactions_account_id_filter_rejects_an_injection_attempt_as_an_unknown_account(make_client, world):
+    alice = make_client("alice")
+    response = alice.get("/api/v1/transactions", query_string={"account_id": "'; DROP TABLE fact_transactions; --"})
+    assert response.status_code == 400   # not in this user's account_ids -> rejected before it ever reaches SQL
+    assert _table_exists("fact_transactions")

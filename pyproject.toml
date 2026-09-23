@@ -33,3 +33,14 @@ select = ["E4", "E7", "E9", "F"]
 markers = [
     "integration: needs a real PostgreSQL server (creates and drops a throwaway database); skipped automatically if none is reachable",
 ]
+
+[tool.bandit]
+# B311 (random.* "not cryptographically secure") is skipped repo-wide: `random` is used ONLY in
+# synthetic/demo/benchmark data generation (data_generator/, scripts/stream_data.py,
+# scripts/seed_demo.py, scripts/benchmark_endpoints.py, webapp/services/demo_seed.py,
+# etl_pipeline.py) -- never for tokens, keys, or session ids. The real secret path
+# (webapp/app.py:load_secret_key) uses secrets.token_hex, which bandit already accepts.
+# Verified by grep audit before adding this skip; tests/test_requirements.py and the security
+# tests in tests/test_flask.py guard the secret-key path specifically.
+skips = ["B311"]
+exclude_dirs = ["venv", ".venv", "tests", "models"]

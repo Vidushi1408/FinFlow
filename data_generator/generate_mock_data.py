@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash
 
 fake = Faker()
 
-DEMO_PASSWORD = "demo1234"  # every generated user shares this password for local/demo use only
+DEMO_PASSWORD = "demo1234"  # nosec B105 - not a real secret: every generated demo/synthetic user shares this documented password
 
 MERCHANTS = [
     {"name": "HDFC Bank", "category": "FINANCE", "mcc": "6011"},

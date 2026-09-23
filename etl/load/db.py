@@ -1,4 +1,5 @@
 import os
+import re
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 import psycopg2
@@ -7,6 +8,22 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from logging_config import logger
+
+_SAFE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class UnsafeIdentifierError(ValueError):
+    """A table or column name isn't a plain SQL identifier, so it can't be safely interpolated."""
+
+
+def _validate_identifier(name):
+    """table_name/column names end up interpolated into the query text below (psycopg2 can only
+    parameterize values, not identifiers). Every caller in this codebase passes fixed, hardcoded
+    names -- never anything derived from a request -- but this validates that invariant instead of
+    just trusting it, so a future caller can't turn this into a real injection by mistake."""
+    if not _SAFE_IDENTIFIER.match(str(name)):
+        raise UnsafeIdentifierError(f"Not a safe SQL identifier: {name!r}")
+    return name
 
 load_dotenv()
 
@@ -55,24 +72,27 @@ def load_data(df, table_name, conflict_columns=None, update_on_conflict=True):
         logger.info(f"No data to load for {table_name}")
         return
 
+    table_name = _validate_identifier(table_name)
+    columns = [_validate_identifier(c) for c in df.columns]
+    conflict_columns = [_validate_identifier(c) for c in (conflict_columns or [])]
+
     conn = get_connection()
     cursor = conn.cursor()
 
-    columns = list(df.columns)
     # astype(object).tolist() yields native Python values; psycopg2 can't adapt
     # numpy scalars (e.g. numpy.int64 from an all-integer frame).
     values = [tuple(x) for x in df.astype(object).to_numpy().tolist()]
 
-    insert_query = f"INSERT INTO {table_name} ({','.join(columns)}) VALUES %s"
+    insert_query = f"INSERT INTO {table_name} ({','.join(columns)}) VALUES %s"  # nosec B608 - identifiers validated above; values are parameterized by execute_values
 
     if conflict_columns:
         update_set = ', '.join([f"{col} = EXCLUDED.{col}" for col in columns if col not in conflict_columns])
         # update_on_conflict=False keeps rows that already exist untouched (e.g. a
         # re-imported statement must not overwrite categories the user corrected).
         if update_set and update_on_conflict:
-            insert_query += f" ON CONFLICT ({','.join(conflict_columns)}) DO UPDATE SET {update_set}"
+            insert_query += f" ON CONFLICT ({','.join(conflict_columns)}) DO UPDATE SET {update_set}"  # nosec B608 - see above
         else:
-            insert_query += f" ON CONFLICT ({','.join(conflict_columns)}) DO NOTHING"
+            insert_query += f" ON CONFLICT ({','.join(conflict_columns)}) DO NOTHING"  # nosec B608 - see above
 
     try:
         execute_values(cursor, insert_query, values, page_size=1000)
