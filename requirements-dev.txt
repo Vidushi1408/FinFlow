@@ -6,5 +6,3 @@ ruff>=0.6.0
 black==23.9.1
 bandit>=1.9.0,<2
 pip-audit>=2.9.0,<3
-fakeredis>=2.30,<3
-lupa>=2.0,<3

@@ -99,3 +99,26 @@ def app_log(caplog):
     caplog.set_level(logging.DEBUG, logger="finflow")
     yield caplog
     app_logger.removeHandler(caplog.handler)
+
+
+@pytest.fixture
+def redis_url():
+    """A real Redis connection URL (default: redis://localhost:6379, override with REDIS_TEST_URL),
+    flushed before and after. Skips -- rather than fails -- when no server is reachable, matching
+    pg_db's behavior: CI runs a real `redis` service (see .github/workflows/ci.yml), so this only
+    skips on a machine without Redis running locally."""
+    import os
+
+    import redis as redis_lib
+
+    url = os.environ.get("REDIS_TEST_URL", "redis://localhost:6379/0")
+    try:
+        client = redis_lib.from_url(url, socket_connect_timeout=2)
+        client.ping()
+    except redis_lib.exceptions.RedisError as e:
+        pytest.skip(f"Redis not reachable at {url}, skipping Redis-backed tests: {e}")
+
+    client.flushdb()
+    yield url
+    client.flushdb()
+    client.close()

@@ -4,17 +4,18 @@ solves the problem it's meant to: with in-memory storage, each worker process
 has its own counter (so N workers behind one login endpoint give N times the
 intended limit); with Redis, the counter is shared.
 
-The Redis-dependent tests use fakeredis's TcpFakeServer -- a real in-process
-server bound to a real localhost socket, so a genuine `redis://` URL and the
-genuine `redis` client library are exercised end-to-end, without needing an
-actual Redis install. No skip-if-unavailable is needed since it's self-contained.
-"""
-import threading
-import time
+The Redis-dependent tests use the `redis_url` fixture (tests/conftest.py) --
+a real Redis connection, skipped if unreachable, exactly like `pg_db` for
+Postgres. CI runs a real `redis` service so these always execute there; on a
+machine without Redis running locally they skip cleanly rather than fail.
 
-import fakeredis
+(An earlier version of this file used fakeredis's TcpFakeServer + the `lupa`
+Lua-scripting package to avoid needing a real Redis at all. That added a
+compiled C-extension as a test-only dependency and broke CI, for a benefit
+this codebase doesn't need: every other piece of external infrastructure here
+-- Postgres included -- is tested the same "real service, skip if absent" way.)
+"""
 import pytest
-import redis as redis_client
 
 from webapp.extensions import load_limiter_storage_uri
 
@@ -48,29 +49,18 @@ def test_production_with_redis_url_does_not_warn(app_log):
     assert "REDIS_URL is not set" not in app_log.text
 
 
-# --- real Redis-backed storage, via a real socket ---
+# --- real Redis-backed storage ---
 
-@pytest.fixture
-def fake_redis_url():
-    """A real redis:// URL backed by an in-process fake server on a real localhost port."""
-    server = fakeredis.TcpFakeServer(("127.0.0.1", 0), server_type="redis")
-    port = server.socket.getsockname()[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    time.sleep(0.05)
-    try:
-        yield f"redis://127.0.0.1:{port}/0"
-    finally:
-        server.shutdown()
+pytestmark_redis = pytest.mark.integration  # applied per-test below; module docstring explains why these need `redis_url`
 
 
-def test_redis_url_is_a_genuinely_usable_redis_connection(fake_redis_url):
+@pytest.mark.integration
+def test_redis_url_is_a_genuinely_usable_redis_connection(redis_url):
     """Proves the `redis` package (an actual runtime dependency, added alongside this feature) is
     installed and works -- Flask-Limiter's RedisStorage imports it lazily, so a missing dependency
     would only surface the first time a real request hit a rate-limited route in production."""
-    host_port = fake_redis_url.removeprefix("redis://").split("/")[0]
-    host, port = host_port.split(":")
-    client = redis_client.Redis(host=host, port=int(port))
+    import redis as redis_client
+    client = redis_client.from_url(redis_url)
     assert client.ping() is True
 
 
@@ -92,9 +82,10 @@ def _build_limited_app(storage_uri):
     return app
 
 
-def test_in_memory_storage_limits_within_one_app_but_not_across_two(fake_redis_url):
+def test_in_memory_storage_limits_within_one_app_but_not_across_two():
     """Baseline: this is the exact problem Redis-backed storage fixes. Two separately-constructed
-    apps (standing in for two worker processes) using in-memory storage do NOT share a counter."""
+    apps (standing in for two worker processes) using in-memory storage do NOT share a counter.
+    (No Redis needed for this one -- it's the in-memory case.)"""
     app_a = _build_limited_app("memory://")
     app_b = _build_limited_app("memory://")
     client_a, client_b = app_a.test_client(), app_b.test_client()
@@ -107,12 +98,13 @@ def test_in_memory_storage_limits_within_one_app_but_not_across_two(fake_redis_u
     assert client_b.get("/protected").status_code == 200
 
 
-def test_redis_storage_shares_the_counter_across_separate_app_instances(fake_redis_url):
+@pytest.mark.integration
+def test_redis_storage_shares_the_counter_across_separate_app_instances(redis_url):
     """The actual fix: two separately-constructed apps (standing in for two worker processes) pointed
     at the SAME Redis instance share one counter for the same client, so the limit means what it says
     regardless of which worker handles which request."""
-    app_a = _build_limited_app(fake_redis_url)
-    app_b = _build_limited_app(fake_redis_url)
+    app_a = _build_limited_app(redis_url)
+    app_b = _build_limited_app(redis_url)
     client_a, client_b = app_a.test_client(), app_b.test_client()
 
     assert client_a.get("/protected").status_code == 200   # worker A: 1/3
@@ -123,9 +115,10 @@ def test_redis_storage_shares_the_counter_across_separate_app_instances(fake_red
     assert client_a.get("/protected").status_code == 429
 
 
-def test_redis_storage_still_separates_different_clients(fake_redis_url):
+@pytest.mark.integration
+def test_redis_storage_still_separates_different_clients(redis_url):
     """Sharing the counter across workers must not mean sharing it across different clients."""
-    app = _build_limited_app(fake_redis_url)
+    app = _build_limited_app(redis_url)
     client = app.test_client()
 
     for _ in range(3):
@@ -135,18 +128,19 @@ def test_redis_storage_still_separates_different_clients(fake_redis_url):
     assert client.get("/protected", environ_overrides={"REMOTE_ADDR": "10.0.0.2"}).status_code == 200
 
 
-def test_real_login_route_is_rate_limited_end_to_end_via_redis(fake_redis_url, monkeypatch):
+@pytest.mark.integration
+def test_real_login_route_is_rate_limited_end_to_end_via_redis(redis_url, monkeypatch):
     """The actual login route (not a stand-in), with its real @limiter.limit('10 per minute') decorator,
     backed by Redis storage: 11 requests from one client, the 11th is rejected."""
     # Import first, so Flask-Limiter's init_app() has already run (its storage backend is built
     # inside init_app, not lazily) -- only then does `.limiter` resolve to a real strategy object
-    # whose `.storage` this test swaps out for the fake Redis.
+    # whose `.storage` this test swaps out for the real Redis.
     import webapp.extensions as extensions_module
     from webapp.app import app
     app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
 
     from limits.storage import storage_from_string
-    monkeypatch.setattr(extensions_module.limiter.limiter, "storage", storage_from_string(fake_redis_url))
+    monkeypatch.setattr(extensions_module.limiter.limiter, "storage", storage_from_string(redis_url))
 
     client = app.test_client()
     statuses = [client.get("/login").status_code for _ in range(11)]

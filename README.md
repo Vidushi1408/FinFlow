@@ -303,7 +303,9 @@ python scripts/stream_data.py --once                       # single batch, then 
   and `tests/test_rate_limiting.py`, which proves the failure mode
   (two separate app instances, standing in for two workers, do **not** share
   a counter on in-memory storage but **do** share one through Redis) against
-  a real `redis://` connection.
+  a real `redis://` connection — CI runs a real `redis` service for this
+  (like the Postgres one), and the same tests skip cleanly on a machine
+  without Redis running locally.
 - **Automated scanning.** CI's `security` job runs `bandit` (static analysis
   for common Python security issues) against the application code and
   `pip-audit` (known CVEs) against `requirements.txt`, and blocks

@@ -49,12 +49,22 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_HOST: localhost
       DB_PORT: "5432"
       SECRET_KEY: ci-only-secret
+      REDIS_TEST_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -65,7 +75,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-      - name: Run tests with coverage (integration tests run against the Postgres service)
+      - name: Run tests with coverage (integration tests run against the Postgres and Redis services)
         run: |
           pytest tests/ -q \
             --cov=etl --cov=ml --cov=webapp \
