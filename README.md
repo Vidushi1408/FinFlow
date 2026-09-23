@@ -175,7 +175,10 @@ same CSV twice upserts instead of duplicating (`etl/transform/clean.py:compute_i
   (Jinja2 + Bootstrap 5), `static/`, `forms.py` (Flask-WTF + CSRF), `auth.py`
   (Flask-Login)
 - `scripts/` — `seed_demo.py` (idempotent seed script; see below), `stream_data.py` (live data),
-  `benchmark_endpoints.py` (times every endpoint for one user with a large history)
+  `benchmark_endpoints.py` (times every endpoint for one user with a large history),
+  `backup_db.py` (pg_dump + rotation; see `docs/DATA_POLICY.md`)
+- `docs/DATA_POLICY.md` — what's stored, what deletion actually removes, and
+  the backup/retention policy, stated honestly including what's not done here
 - `tests/` — pytest suite, ~90% coverage of `etl/`, `ml/`, `webapp/` (unit tests plus integration tests against real Postgres)
 - `.github/workflows/ci.yml` — ruff lint → pytest (coverage-gated, against a real Postgres) → Docker build
   → a smoke job that runs `docker compose up`, waits for `/health`, and logs in as the demo user
@@ -340,6 +343,14 @@ python scripts/stream_data.py --once                       # single batch, then 
   fragments with bound `:params`, and both are covered by tests that attempt
   actual SQL injection against a real database
   (`tests/test_integration_db.py`, `tests/test_integration_routes.py`).
+- **Backups and data deletion.** See `docs/DATA_POLICY.md` for the full
+  picture, but the short version: `scripts/backup_db.py` backs up the
+  database (`pg_dump`, compressed, rotated after 30 days by default) and
+  isn't scheduled automatically — run it yourself via cron/systemd or
+  `docker compose run --rm webapp python scripts/backup_db.py`. "Delete all
+  my data" is a real, immediate hard delete from the live database, but data
+  from before a deletion may still exist in a backup taken before it, until
+  that backup ages out.
 
 ## Performance
 

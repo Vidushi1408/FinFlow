@@ -3,8 +3,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies for pandas/psycopg2 if needed
-RUN apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*
+# libpq-dev/gcc for pandas/psycopg2; postgresql-client gives this image its own pg_dump/pg_restore
+# so `docker compose run --rm webapp python scripts/backup_db.py` works with no host tools required.
+RUN apt-get update && apt-get install -y libpq-dev gcc postgresql-client && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 

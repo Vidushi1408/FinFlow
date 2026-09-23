@@ -116,7 +116,8 @@ async function resetDemo() {
 async function deleteAllData() {
     const ok = await confirmTyped({
         title: 'Delete all your data?',
-        message: 'This permanently deletes all your transactions, accounts, budgets and goals. It cannot be undone.',
+        message: 'This permanently deletes all your transactions, accounts, budgets and goals from the live app. '
+            + 'It cannot be undone. (Data may still exist in backups taken before now, until those age out on their own schedule.)',
         phrase: 'DELETE', confirmLabel: 'Delete everything'
     });
     if (!ok) return;

@@ -24,3 +24,6 @@ htmlcov/
 # not needed to run the app
 tests/
 .DS_Store
+
+backups/
+*.dump

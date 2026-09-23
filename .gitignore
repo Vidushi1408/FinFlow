@@ -33,3 +33,7 @@ models/
 htmlcov/
 .pytest_cache/
 .ruff_cache/
+
+# Local database backups (real financial data -- never commit these)
+backups/
+*.dump
