@@ -15,6 +15,14 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   seed:
     build: .
     command: python scripts/seed_demo.py
@@ -46,6 +54,10 @@ services:
       # For a stable key, set SECRET_KEY in a .env next to this file. In production it is mandatory.
       - SECRET_KEY=${SECRET_KEY:-}
       - FLASK_ENV=${FLASK_ENV:-development}
+      # Shares login-rate-limit counters across workers/containers; without it each worker counts
+      # separately, so N workers give N times the intended limit. Not yet load-bearing here since
+      # the command above runs a single gunicorn worker, but required before adding `-w`.
+      - REDIS_URL=redis://redis:6379/0
       - PYTHONPATH=/app
     healthcheck:
       # the slim image has no curl; /health returns 503 (=> urlopen raises) when the DB is unreachable
@@ -56,6 +68,8 @@ services:
       start_period: 15s
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       seed:
         condition: service_completed_successfully

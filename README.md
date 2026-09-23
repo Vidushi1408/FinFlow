@@ -290,9 +290,20 @@ python scripts/stream_data.py --once                       # single batch, then 
   after login, `HttpOnly`/`SameSite` (and `Secure` in production) cookies, and
   `nosniff`/`X-Frame-Options`/`Referrer-Policy` headers.
 - **What isn't:** no Content-Security-Policy (the pages use inline scripts and
-  CDN assets), and the login rate limiter keeps its counts in memory, so it is
-  per-process — point Flask-Limiter at Redis before running several workers.
+  CDN assets).
 - Internal errors are logged server-side; clients only see generic messages.
+- **Rate-limit storage.** Set `REDIS_URL` to share login-rate-limit counters
+  across workers/containers via Redis; without it, Flask-Limiter falls back to
+  an in-process dict, so each worker counts separately and N workers give N
+  times the intended limit (a warning is logged if this happens with
+  `FLASK_ENV=production`). `docker-compose.yml` runs a `redis` service and
+  sets `REDIS_URL` for the webapp already, though it isn't load-bearing there
+  yet since that compose file runs a single gunicorn worker — it becomes
+  necessary the moment you add `-w`. See `webapp/extensions.py:load_limiter_storage_uri`
+  and `tests/test_rate_limiting.py`, which proves the failure mode
+  (two separate app instances, standing in for two workers, do **not** share
+  a counter on in-memory storage but **do** share one through Redis) against
+  a real `redis://` connection.
 - **Automated scanning.** CI's `security` job runs `bandit` (static analysis
   for common Python security issues) against the application code and
   `pip-audit` (known CVEs) against `requirements.txt`, and blocks
