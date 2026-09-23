@@ -379,21 +379,27 @@ Numbers below are from the last `train_models.py` run against the seeded
 demo dataset (~18.5k transactions, chronological 80/20 split) — also visible
 live at `/about-models` for whatever's currently trained.
 
-**Fraud detection (Isolation Forest).** Threshold calibrated at training time
-from a percentile of training scores (never per-batch min-max normalization,
-which would make the threshold mean something different on every request).
+**Fraud detection (Isolation Forest).** "Fraud detection" names the ML
+technique being evaluated here (against known synthetic fraud labels) — the
+live app itself never claims to detect real fraud; it presents this model's
+output to users as "unusual activity" (see Security notes and
+`webapp/routes/model_info.py`'s `plain_language` text) because on real,
+unlabeled transactions it can only say something looks unusual, not that it's
+actually fraudulent. Threshold calibrated at training time from a percentile
+of training scores (never per-batch min-max normalization, which would make
+the threshold mean something different on every request).
 
 | Metric | Value |
 |---|---|
-| Precision | 0.60 |
-| Recall | 1.00 |
+| Precision | 0.68 |
+| Recall | 0.83 |
 | F1 | 0.75 |
-| AUROC | 0.997 |
-| Confusion matrix (holdout) | TP=62, FP=42, FN=0, TN=3599 |
+| AUROC | 0.996 |
+| Confusion matrix (holdout) | TP=49, FP=23, FN=10, TN=3896 |
 
-Recall of 1.0 with precision of 0.6 is a deliberate posture for this
-use case: missing real fraud is worse than a false alarm the user can dismiss
-in one tap ("This was me").
+Recall meaningfully above precision is a deliberate posture for this use
+case: missing real fraud is worse than a false alarm the user can dismiss in
+one tap ("This was me").
 
 **Cash flow forecast (linear regression vs. two naive baselines).**
 Rolling-origin backtest over the last 90 days, reporting MAE for the
@@ -401,19 +407,22 @@ regression, "same period last month", and "trailing 30-day average":
 
 | Strategy | Backtest MAE |
 |---|---|
-| Regression (day-of-week + payday + rolling averages) | 471,378 |
-| Same period last month | 208,728 |
-| Trailing 30-day average | **139,705** (used) |
+| Regression (day-of-week + payday + rolling averages) | **199,166** (used) |
+| Trailing 30-day average | 224,974 |
+| Same period last month | 315,290 |
 
-On the seeded demo data the regression does **not** beat the trailing-average
-baseline — the app knows this and uses the baseline instead, which is exactly
-what "Will I be okay next month?" should do rather than presenting an
-overconfident model. This is a fair result: the demo dataset aggregates many
-unrelated personas' spending into one time series (day-to-day totals across
-9+ independent households), which is far noisier than one person's own
-spending pattern that the model would see in production. A 30-day prediction
-interval (from backtest residuals, widening with `√horizon`) is shown either
-way, so the forecast never claims false precision.
+On the current seeded demo data the regression beats both naive baselines, so
+that's what live forecasts use. This isn't guaranteed to hold on every
+retrain — the app checks the backtest each time and falls back to whichever
+baseline wins if the regression doesn't, which is exactly what "Will I be
+okay next month?" should do rather than presenting an overconfident model
+regardless of the result. The demo dataset aggregates many unrelated
+personas' spending into one time series (day-to-day totals across 9+
+independent households), which is far noisier than one person's own spending
+pattern that the model would see in production — so this result understates,
+not overstates, how the model would do for a single real user. A 30-day
+prediction interval (from backtest residuals, widening with `√horizon`) is
+shown either way, so the forecast never claims false precision.
 
 ## Known limitations
 
