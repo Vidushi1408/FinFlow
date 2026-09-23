@@ -1014,3 +1014,72 @@ def test_production_accepts_a_strong_key():
     from webapp.app import load_secret_key
     key = "0123456789abcdef0123456789abcdef"
     assert load_secret_key({"FLASK_ENV": "production", "SECRET_KEY": key}) == key
+
+
+# --- SECRET_KEY x multiple gunicorn workers ---
+# gunicorn forks each worker from a fresh import of the app, so a random per-process key means every
+# worker signs sessions with a DIFFERENT key -- unlike the single-worker case, this isn't just an
+# inconvenience (sessions resetting on restart), it's a live bug (logins randomly fail depending on
+# which worker handles the next request), so it's enforced the same way production is.
+
+def test_worker_count_defaults_to_one():
+    from webapp.app import _worker_count
+    assert _worker_count({}) == 1
+
+
+@pytest.mark.parametrize("raw,expected", [("1", 1), ("4", 4), ("10", 10)])
+def test_worker_count_reads_gunicorn_workers(raw, expected):
+    from webapp.app import _worker_count
+    assert _worker_count({"GUNICORN_WORKERS": raw}) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "not-a-number", "-1", "0"])
+def test_worker_count_falls_back_to_one_for_garbage_or_non_positive_values(raw, app_log):
+    from webapp.app import _worker_count
+    assert _worker_count({"GUNICORN_WORKERS": raw}) == 1
+
+
+def test_zero_workers_does_not_trigger_the_multi_worker_requirement():
+    """GUNICORN_WORKERS=0 is nonsensical, but _worker_count's floor of 1 means it's treated as the
+    harmless single-worker case (falls back to a random key), not silently interpreted as "many
+    workers" (which would raise for a missing key)."""
+    from webapp.app import load_secret_key
+    key = load_secret_key({"GUNICORN_WORKERS": "0", "SECRET_KEY": ""})
+    assert len(key) == 64  # a random token_hex(32), not a raised exception
+
+
+@pytest.mark.parametrize("workers", ["2", "4", "10"])
+def test_multiple_workers_refuse_to_start_without_a_strong_private_key(workers):
+    from webapp.app import load_secret_key
+    for bad_key in ("", "change-me-to-a-random-secret", "dev-only-insecure-key-change-me", "too-short"):
+        with pytest.raises(RuntimeError, match="SECRET_KEY must be set"):
+            load_secret_key({"GUNICORN_WORKERS": workers, "SECRET_KEY": bad_key})
+
+
+def test_multiple_workers_error_message_names_the_actual_reason():
+    """Distinguishes this from the production message, so someone hitting it in dev isn't confused
+    about why a non-production run is refusing to start."""
+    from webapp.app import load_secret_key
+    with pytest.raises(RuntimeError, match="GUNICORN_WORKERS=4"):
+        load_secret_key({"GUNICORN_WORKERS": "4", "SECRET_KEY": ""})
+
+
+def test_multiple_workers_with_a_strong_key_starts_normally():
+    from webapp.app import load_secret_key
+    key = "0123456789abcdef0123456789abcdef"
+    assert load_secret_key({"GUNICORN_WORKERS": "4", "SECRET_KEY": key}) == key
+
+
+def test_single_worker_still_falls_back_to_a_random_key_outside_production():
+    """The pre-existing, unchanged behavior for the common case: one worker, no key set."""
+    from webapp.app import load_secret_key
+    assert load_secret_key({"GUNICORN_WORKERS": "1"}) != ""
+    assert len(load_secret_key({"GUNICORN_WORKERS": "1"})) == 64
+
+
+def test_production_with_one_worker_still_requires_a_key():
+    """Production's requirement doesn't depend on worker count -- it applied before GUNICORN_WORKERS
+    existed and must keep applying with the (default) single worker too."""
+    from webapp.app import load_secret_key
+    with pytest.raises(RuntimeError, match="in production"):
+        load_secret_key({"FLASK_ENV": "production", "GUNICORN_WORKERS": "1", "SECRET_KEY": ""})

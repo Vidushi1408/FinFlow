@@ -41,7 +41,13 @@ services:
 
   webapp:
     build: .
-    command: gunicorn --bind 0.0.0.0:8000 webapp.app:app
+    # GUNICORN_WORKERS defaults to 1 (zero-config quick start, matching the README and CI's smoke
+    # job). Set it in a .env next to this file to run more than one worker -- e.g. GUNICORN_WORKERS=4
+    # -- and set a real SECRET_KEY alongside it: webapp/app.py refuses to start with more than one
+    # worker and no real SECRET_KEY, because gunicorn forks each worker from a fresh import of the
+    # app, so a random per-process key would mean every worker signs sessions differently and logins
+    # would randomly fail depending on which worker handles the next request.
+    command: gunicorn --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-1} webapp.app:app
     ports:
       - "8000:8000"
     environment:
@@ -51,12 +57,18 @@ services:
       - DB_PORT=5432
       - DB_NAME=finflow
       # Leave unset for a random per-start key (fine for one worker, but logins reset on restart).
-      # For a stable key, set SECRET_KEY in a .env next to this file. In production it is mandatory.
+      # For a stable key, set SECRET_KEY in a .env next to this file. Mandatory in production, and
+      # mandatory the moment GUNICORN_WORKERS is set above 1 (see the comment on `command:` above).
       - SECRET_KEY=${SECRET_KEY:-}
       - FLASK_ENV=${FLASK_ENV:-development}
+      # Must match the --workers flag on `command:` above -- gunicorn has no standard way to tell the
+      # app how many sibling workers exist, so webapp/app.py reads this instead. Keep them in sync;
+      # both read the same GUNICORN_WORKERS variable, so setting it once in a .env keeps them in sync
+      # automatically.
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-1}
       # Shares login-rate-limit counters across workers/containers; without it each worker counts
-      # separately, so N workers give N times the intended limit. Not yet load-bearing here since
-      # the command above runs a single gunicorn worker, but required before adding `-w`.
+      # separately, so N workers give N times the intended limit. Becomes load-bearing the moment
+      # GUNICORN_WORKERS is set above 1.
       - REDIS_URL=redis://redis:6379/0
       - PYTHONPATH=/app
     healthcheck:

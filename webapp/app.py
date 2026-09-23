@@ -35,14 +35,36 @@ from webapp.routes.model_info import model_info_bp
 _PLACEHOLDER_SECRET_KEYS = {"", "change-me-to-a-random-secret", "dev-only-insecure-key-change-me"}
 
 
+def _worker_count(env):
+    """How many gunicorn worker processes are (claimed to be) running, from GUNICORN_WORKERS --
+    an env var this app defines itself (gunicorn has no standard way to tell the app how many
+    sibling workers exist; docker-compose.yml sets it to match its own `--workers` flag). Missing
+    or unparseable is treated as 1 (single worker): the common case, and the one where a random
+    per-process key is actually harmless."""
+    raw = env.get("GUNICORN_WORKERS", "1")
+    try:
+        return max(int(raw), 1)
+    except (TypeError, ValueError):
+        logger.warning(f"GUNICORN_WORKERS={raw!r} is not a valid integer; assuming 1 worker.")
+        return 1
+
+
 def load_secret_key(env=os.environ):
-    """The session-signing key. In production a real, private key is mandatory. Elsewhere a missing or
-    placeholder key becomes a random per-process one: sessions then reset on restart (and don't survive
-    across multiple workers), which is inconvenient but safe -- unlike a publicly known key."""
+    """The session-signing key. A missing or placeholder key becomes a random per-process one --
+    fine with a single worker (sessions just reset on restart), but actively broken with more than
+    one: gunicorn forks each worker from a fresh import of this module, so a random key means EVERY
+    worker gets a DIFFERENT key, and a session cookie signed by worker A fails to validate on worker
+    B -- a login that randomly "doesn't stick" depending on which worker handles the next request.
+    So a real key is mandatory in production, and also whenever GUNICORN_WORKERS says more than one
+    worker is running, in development or not."""
     key = env.get("SECRET_KEY", "")
-    if env.get("FLASK_ENV") == "production":
+    workers = _worker_count(env)
+    in_production = env.get("FLASK_ENV") == "production"
+
+    if in_production or workers > 1:
         if key in _PLACEHOLDER_SECRET_KEYS or len(key) < 16:
-            raise RuntimeError("SECRET_KEY must be set to a private random value (16+ characters) in production. "
+            reason = "in production" if in_production else f"with GUNICORN_WORKERS={workers} (each worker would get its own random key)"
+            raise RuntimeError(f"SECRET_KEY must be set to a private random value (16+ characters) {reason}. "
                                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\"")
         return key
     if key in _PLACEHOLDER_SECRET_KEYS:

@@ -202,6 +202,19 @@ keeps your `.env`, virtualenv, CSVs and trained models out of the image.
 **Demo login:** `demo@finflow.app` / `demo1234` (also printed in the seed
 container's logs). Every other generated user shares the same password.
 
+**Running more than one gunicorn worker.** The webapp service runs a single
+worker by default. To run more, create a `.env` next to `docker-compose.yml`
+with both of:
+
+```bash
+GUNICORN_WORKERS=4
+SECRET_KEY=<output of: python -c "import secrets; print(secrets.token_hex(32))">
+```
+
+then `docker compose up -d` again. Setting `GUNICORN_WORKERS` alone (without a
+real `SECRET_KEY`) makes the webapp container fail to start on purpose — see
+the Security notes below for why.
+
 > The spec's suggested demo email `demo@finflow.local` doesn't pass this
 > app's own email validation — `.local` is a reserved TLD, correctly rejected
 > by the `email-validator` library WTForms uses, so nobody could actually log
@@ -278,12 +291,20 @@ python scripts/stream_data.py --once                       # single batch, then 
 ## Security notes
 
 - **Session key.** Set `SECRET_KEY` to a private random value
-  (`python -c "import secrets; print(secrets.token_hex(32))"`). In production
-  (`FLASK_ENV=production`) the app refuses to start without one. In
-  development a missing key, or the placeholder from `.env.example`, is replaced
-  by a random per-process key with a warning — logins reset on restart, but
-  session cookies can never be forged with a publicly known key. Use one
-  worker unless `SECRET_KEY` is set, since a random key differs per process.
+  (`python -c "import secrets; print(secrets.token_hex(32))"`). The app
+  refuses to start without a real one in two cases: `FLASK_ENV=production`,
+  or `GUNICORN_WORKERS` set above 1 (gunicorn forks each worker from a fresh
+  import of the app, so a random per-process key means every worker signs
+  sessions differently — a login that randomly "doesn't stick" depending on
+  which worker handles the next request, not just a cosmetic restart reset).
+  Outside those two cases — the default single-worker `docker compose up` and
+  local `flask run` — a missing key, or the placeholder from `.env.example`,
+  is replaced by a random per-process key with a warning: logins reset on
+  restart, but session cookies can never be forged with a publicly known key.
+  `docker-compose.yml` runs a single worker by default for exactly this
+  reason; set `GUNICORN_WORKERS` (and `SECRET_KEY`) in a `.env` next to it to
+  run more than one. See `webapp/app.py:load_secret_key`/`_worker_count` and
+  the "SECRET_KEY x multiple gunicorn workers" tests in `tests/test_flask.py`.
 - **What's covered:** CSRF tokens on every form and API call, hashed passwords,
   login rate limiting, every data route login-protected and scoped to the
   caller's own accounts, output escaping in the UI, same-site-only redirects
