@@ -11,7 +11,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from etl.transform.clean import summarize_recurring_series
-from webapp.services.recurring import dominant_category, recurring_kind
+from webapp.services.recurring import FIXED_COMMITMENT_CATEGORIES, dominant_category, recurring_kind
 
 BUFFER_TARGET_MONTHS = 3
 LOW_SAVINGS_RATE = 0.10
@@ -380,11 +380,69 @@ def priorities_reply(recommendations):
     return "Here's what I'd do, in this order:\n" + "\n".join(lines) + f"\n\nNext step: start with #1, {top[0]['title'].lower()}."
 
 
+_CUT_Q_RE = re.compile(r"\b(where (can|could|should) i (cut|reduce|save|trim)|cut (down )?(on )?(my )?spending|reduce (my )?spending|spend less)\b", re.I)
+_SAVING_Q_RE = re.compile(r"\b(am i saving enough|how much (am|do) i (i )?sav|(my )?savings? rate|saving enough)\b", re.I)
+CUT_SUGGESTION_FRACTION = 0.15
+
+
+def cut_spending_reply(profile):
+    """Where the discretionary money goes, biggest first, with what a 15% trim of each would free up."""
+    flexible = {c: v for c, v in profile["category_avg"].items() if c not in FIXED_COMMITMENT_CATEGORIES and v > 0}
+    if not flexible:
+        return "I don't have enough spending history yet to say where to cut. Add a full month of transactions first."
+    top = sorted(flexible.items(), key=lambda kv: -kv[1])[:3]
+    lines = [f"{i}. {c.title()}: about {_inr(v)}/month. Trimming {CUT_SUGGESTION_FRACTION * 100:.0f}% frees about {_inr(v * CUT_SUGGESTION_FRACTION)}/month."
+             for i, (c, v) in enumerate(top, 1)]
+    total = sum(v for _, v in top) * CUT_SUGGESTION_FRACTION
+    spikes = [(c, now, profile["category_avg"].get(c, 0)) for c, now in profile["category_this_month"].items()
+              if profile["category_avg"].get(c, 0) > 0 and now > profile["category_avg"][c] * CATEGORY_SPIKE_RATIO
+              and now - profile["category_avg"][c] > CATEGORY_SPIKE_MIN_RUPEES and c not in FIXED_COMMITMENT_CATEGORIES]
+    out = ("Rent, EMIs, SIPs and bills are fixed, so the flexible money is here:\n" + "\n".join(lines)
+           + f"\nTrimming {'these' if len(top) > 1 else 'it'} would free about {_inr(total)}/month in total.")
+    if spikes:
+        c, now, avg = max(spikes, key=lambda t: t[1] - t[2])
+        out += f"\nThis month {c.title()} is also running high: {_inr(now)} so far against a usual {_inr(avg)}."
+    return out
+
+
+def saving_reply(profile):
+    """Savings rate against the common 10% floor / 20% target, plus the emergency-buffer position."""
+    rate, income, spend = profile["savings_rate"], profile["avg_monthly_income"], profile["avg_monthly_spend"]
+    if rate is None:
+        return "I can't judge your savings yet because no income shows up in your recent months."
+    saved = income - spend
+    if rate < 0:
+        verdict = f"You're spending {_inr(-saved)}/month more than you earn, so you're not saving; fixing that comes first."
+    elif rate < LOW_SAVINGS_RATE:
+        verdict = f"You keep about {rate * 100:.0f}% of income ({_inr(saved)}/month). That's thin; aim for at least 10%."
+    elif rate < HEALTHY_SAVINGS_RATE:
+        verdict = f"You keep about {rate * 100:.0f}% of income ({_inr(saved)}/month). That's decent; a common target is 20%, which here would be {_inr(income * HEALTHY_SAVINGS_RATE)}/month."
+    else:
+        verdict = f"You keep about {rate * 100:.0f}% of income ({_inr(saved)}/month), at or above the common 20% target."
+    bm = profile["buffer_months"]
+    if bm is not None:
+        verdict += (f" Your balance covers about {bm:.1f} months of spending"
+                    + (f", short of the {BUFFER_TARGET_MONTHS}-month emergency target." if bm < BUFFER_TARGET_MONTHS else ", which meets the emergency target."))
+    return verdict
+
+
+def plain_text(reply):
+    """The chat shows plain text, so drop the markdown a model likes to add (**bold**, # headings, '* ' bullets)."""
+    reply = re.sub(r"\*\*(.+?)\*\*", r"\1", reply)
+    reply = re.sub(r"__(.+?)__", r"\1", reply)
+    reply = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", reply)
+    return re.sub(r"(?m)^(\s*)[*-] ", r"\1• ", reply)
+
+
 def computed_facts_for(message, profile):
     """Deterministic answers for questions the model would otherwise do arithmetic on."""
     facts = {}
     if _PRIORITY_RE.search(message):
         facts["priority_question"] = True
+    if _CUT_Q_RE.search(message):
+        facts["cut_question"] = True
+    if _SAVING_Q_RE.search(message):
+        facts["saving_question"] = True
     cut = whatif_cut(profile, message)
     if cut:
         facts["whatif_cut"] = cut

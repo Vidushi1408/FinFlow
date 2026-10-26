@@ -530,3 +530,12 @@ def test_alerts_learn_from_feedback_and_only_reorder(make_client, monkeypatch):
         assert ps == sorted(ps, reverse=True)
     else:  # the bar for switching on wasn't met by this seeded data; then alerts carry no learned score
         assert all(a["p_suspicious"] is None for a in after["alerts"])
+
+
+def test_forecast_is_personal_to_the_user_once_they_have_history(make_client):
+    body = make_client("alice").get("/api/v1/cash-flow/forecast").get_json()
+    assert body["scope"] in ("personal", "population")
+    if body["scope"] == "personal":
+        # a one-person monthly forecast, not a warehouse total
+        assert 0 < body["forecast_30_days_total"] < 2_000_000
+        assert body["backtest_mae"] < 200_000

@@ -37,3 +37,4 @@ htmlcov/
 # Local database backups (real financial data -- never commit these)
 backups/
 *.dump
+smoke_shots/

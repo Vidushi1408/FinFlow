@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, g
 from flask_login import login_required, current_user
 from sqlalchemy import text
 import pandas as pd
-from ml.cashflow_model import predict_cashflow, load_cashflow_metadata
+from ml.cashflow_model import fit_personal_cashflow, predict_cashflow, load_cashflow_metadata
 from webapp.db_utils import user_account_ids
 
 cashflow_bp = Blueprint('cashflow', __name__, url_prefix='/api/v1/cash-flow')
@@ -31,8 +31,16 @@ def get_cashflow_forecast():
         })
         
     try:
-        predictions = predict_cashflow(df, days=30)
-        metadata = load_cashflow_metadata()
+        # Prefer a forecast fitted on THIS user's own spending; the global model is trained on every account's
+        # combined totals, so its scale and quoted error mean nothing for one person. Fall back to it only
+        # while the user has too little history of their own.
+        personal = fit_personal_cashflow(df)
+        if personal is not None:
+            model, metadata = personal
+            predictions = predict_cashflow(df, days=30, model=model, metadata=metadata)
+        else:
+            predictions = predict_cashflow(df, days=30)
+            metadata = {**load_cashflow_metadata(), 'scope': 'population'}
     except FileNotFoundError:
         return jsonify({
             "forecast_30_days_total": 0,
@@ -54,6 +62,7 @@ def get_cashflow_forecast():
         "forecast_30_days_total": float(total_forecast),
         "daily_forecasts": daily,
         "strategy": metadata.get('selected_strategy', 'model'),
+        "scope": metadata.get('scope', 'population'),
         "backtest_mae": metadata.get('metrics', {}).get(
             {'model': 'model_mae', 'same_period_last_month': 'baseline_last_month_mae',
              'trailing_30d_avg': 'baseline_trailing_avg_mae'}.get(metadata.get('selected_strategy'), 'model_mae')

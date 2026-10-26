@@ -15,7 +15,7 @@ from webapp.errors import error_response
 from webapp.extensions import limiter
 from webapp.services.pdf_utils import pdf_inr
 from webapp.services.advisor import (
-    PRIORITY_ORDER, affordability_reply, priorities_reply, whatif_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
+    PRIORITY_ORDER, affordability_reply, cut_spending_reply, plain_text, priorities_reply, saving_reply, whatif_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
     grounded_fallback, unverified_figures,
 )
 from etl.transform.clean import summarize_recurring_series
@@ -390,6 +390,10 @@ def report_chat():
     if "affordability_check" in computed:
         return jsonify({"reply": affordability_reply(computed, recommendations), "month": report["month"],
                         "model": "rules"})
+    if "cut_question" in computed:
+        return jsonify({"reply": cut_spending_reply(profile), "month": report["month"], "model": "rules"})
+    if "saving_question" in computed:
+        return jsonify({"reply": saving_reply(profile), "month": report["month"], "model": "rules"})
     if "priority_question" in computed:
         return jsonify({"reply": priorities_reply(recommendations), "month": report["month"], "model": "rules"})
     if "whatif_cut" in computed:
@@ -402,7 +406,7 @@ def report_chat():
     except OllamaError as e:
         return error_response(str(e), 503)
 
-    reply = fix_currency(reply)
+    reply = plain_text(fix_currency(reply))
     if unverified_figures(reply, system_prompt, user_message):
         reply = grounded_fallback(recommendations)
     return jsonify({"reply": reply, "month": report["month"], "model": OLLAMA_MODEL})

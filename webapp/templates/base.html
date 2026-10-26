@@ -59,7 +59,7 @@
                 <span>Please confirm your email address. We sent a link to <strong>{{ current_user.email }}</strong>.</span>
                 <form method="POST" action="{{ url_for('auth.resend_verification') }}" class="m-0">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="btn btn-sm btn-outline-dark">Resend link</button>
+                    <button class="btn btn-sm btn-warning">Resend link</button>
                 </form>
             </div>
         {% endif %}

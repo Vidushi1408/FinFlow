@@ -159,3 +159,23 @@ def test_predict_cashflow_interval_reflects_this_users_own_volatility_not_global
     last = predictions[-1]
     interval_width = last['upper_bound'] - last['lower_bound']
     assert interval_width < 5000, f"interval too wide for a low-volatility user: {interval_width}"
+
+
+def test_personal_forecast_is_fitted_on_one_users_own_scale():
+    import numpy as np
+    import pandas as pd
+    from ml.cashflow_model import MIN_PERSONAL_DAYS, fit_personal_cashflow, predict_cashflow
+
+    rng = np.random.default_rng(3)
+    days = pd.date_range("2026-01-01", periods=150)
+    amounts = 2500 + 900 * (days.dayofweek >= 5) + rng.normal(0, 200, len(days))     # a person spending ~₹2.5k a day
+    df = pd.DataFrame({"date_id": days.strftime("%Y%m%d").astype(int), "amount": amounts})
+
+    model, meta = fit_personal_cashflow(df)
+    assert meta["scope"] == "personal" and meta["selected_strategy"] in ("model", "same_period_last_month", "trailing_30d_avg")
+    assert meta["metrics"]["backtest_days"] <= 50
+    assert meta["metrics"]["model_mae"] < 1500          # the error is on this person's own scale, not a warehouse total
+    forecast = predict_cashflow(df, days=30, model=model, metadata=meta)
+    assert 1500 < np.mean([f["predicted_amount"] for f in forecast]) < 4000
+
+    assert fit_personal_cashflow(df.head(MIN_PERSONAL_DAYS - 5)) is None

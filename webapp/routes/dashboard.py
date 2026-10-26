@@ -125,7 +125,7 @@ def dashboard_summary():
             FROM fact_transactions f
             JOIN dim_date d ON f.date_id = d.date_id
             WHERE f.account_id = ANY(:aids)
-              AND d.date >= (CURRENT_DATE - INTERVAL '6 months')
+              AND d.date >= (date_trunc('month', CURRENT_DATE) - INTERVAL '5 months')
             GROUP BY d.year, d.month ORDER BY d.year, d.month
         """), {"aids": account_ids}
     ).fetchall()

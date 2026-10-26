@@ -169,6 +169,28 @@ def train_cashflow_model(df):
     return model, metadata
 
 
+MIN_PERSONAL_DAYS = 60      # days of the user's own spending needed to fit their own forecast
+PERSONAL_BACKTEST_DAYS = 45  # newest days held out to pick the strategy and measure error
+
+
+def fit_personal_cashflow(df):
+    """Fit and backtest the forecast on ONE user's own daily spending (cheap: a 5-feature linear regression
+    and two naive baselines), instead of using the global model trained on every account's combined totals.
+    That global model's scale and its quoted error describe the whole warehouse, not one person. Returns
+    (model, metadata) shaped like the saved global ones, or None when there isn't enough history."""
+    df_daily, feature_cols = prepare_cashflow_data(df)
+    if len(df_daily) < MIN_PERSONAL_DAYS:
+        return None
+    horizon = min(PERSONAL_BACKTEST_DAYS, len(df_daily) // 3)
+    _, strategy, metrics, residual_std = backtest_cashflow(df_daily, feature_cols, horizon=horizon)
+    model = LinearRegression()
+    model.fit(df_daily[feature_cols], df_daily['target_next_day'])   # refit on everything for the live forecast
+    return model, {
+        'feature_columns': feature_cols, 'selected_strategy': strategy, 'metrics': metrics,
+        'residual_std': residual_std, 'training_rows': int(len(df_daily)), 'scope': 'personal',
+    }
+
+
 def load_cashflow_metadata():
     if not os.path.exists(STATS_PATH):
         raise FileNotFoundError("Model stats not found. Train the model first.")

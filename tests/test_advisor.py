@@ -75,7 +75,7 @@ def test_affordability_verdicts():
 def test_computed_facts_only_for_purchase_questions():
     p = profile()
     assert "affordability_check" in computed_facts_for("Can I afford a ₹20,000 purchase?", p)
-    assert computed_facts_for("Where can I cut spending?", p) == {}
+    assert "affordability_check" not in computed_facts_for("Where can I cut spending?", p)
 
 
 def test_figure_verification_compares_numbers_not_text():
@@ -118,3 +118,23 @@ def test_what_should_i_do_is_answered_from_the_ranked_rules():
     reply = priorities_reply(build_recommendations(p))
     assert reply.startswith("Here's what I'd do") and "1. " in reply and "Next step" in reply
     assert "Nothing urgent" in priorities_reply([{"id": "on-track", "title": "x", "detail": "y"}])
+
+
+def test_where_to_cut_and_am_i_saving_enough_are_answered_from_the_data():
+    from webapp.services.advisor import computed_facts_for, cut_spending_reply, saving_reply
+    p = profile(category_avg={"RENT": 24000.0, "FOOD": 9000.0, "SHOPPING": 6000.0, "FINANCE": 13000.0},
+                category_this_month={"SHOPPING": 12000.0})
+    assert computed_facts_for("Where can I cut spending?", p)["cut_question"]
+    assert computed_facts_for("Am I saving enough?", p)["saving_question"]
+    reply = cut_spending_reply(p)
+    assert "1. Food" in reply and "2. Shopping" in reply and "Rent:" not in reply and "Finance:" not in reply
+    assert "Shopping is also running high" in reply
+    assert "decent" in saving_reply(profile(savings_rate=0.15, avg_monthly_income=60000.0, avg_monthly_spend=51000.0))
+    assert "thin" in saving_reply(profile(savings_rate=0.05, avg_monthly_income=60000.0, avg_monthly_spend=57000.0))
+    assert "not saving" in saving_reply(profile(savings_rate=-0.1, avg_monthly_income=50000.0, avg_monthly_spend=55000.0))
+    assert "no income" in saving_reply(profile(savings_rate=None))
+
+
+def test_plain_text_strips_markdown_but_keeps_content():
+    from webapp.services.advisor import plain_text
+    assert plain_text("**Next step:** Check fees.\n* one\n- two\n## Title") == "Next step: Check fees.\n• one\n• two\nTitle"

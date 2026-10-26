@@ -262,6 +262,19 @@ python etl_pipeline.py                                         # load it
 python train_models.py                                         # train + evaluate
 ```
 
+### Try it with a year of data
+
+`python scripts/generate_sample_statement.py` writes `sample_data/sample_statement_1yr.csv`: 532 transactions
+over 12 months for one fictional salaried person, in the layout of an Indian bank export (day-first dates,
+Withdrawal/Deposit columns, running Closing Balance, UPI narrations with unique reference numbers). It has
+salary, rent, an EMI, an SIP, subscriptions, food delivery, groceries, cabs, shopping, friends' UPI payments, a
+trip each half-year, and a few out-of-pattern charges for the Alerts page. Upload it from the onboarding screen.
+
+`python tests/smoke_full_journey.py` drives the whole app with that file in a real browser against a scratch
+database (it creates and drops its own; your data is untouched): sign up, upload through the preview, check
+balances, subscriptions, alerts, forecast, reports, budgets/goals/loans, recategorising, exports, the coach, and
+logout/login, failing on any console error, CSP violation or HTTP error. Screenshots go to `smoke_shots/`.
+
 ### Money coach setup (optional)
 
 The chat on the Reports page needs a local [Ollama](https://ollama.com) server; nothing is sent to any
@@ -466,10 +479,10 @@ shown either way, so the forecast never claims false precision.
 
 ## Known limitations
 
-- **Aggregate cash flow model.** As above — the regression is evaluated
-  against total spend across all demo accounts, not one user's history, which
-  understates how well it'd do for a single real user with more days of
-  their own data.
+- **Cash flow forecast.** With about 60+ days of your own spending, the forecast is fitted and backtested on
+  *your* daily totals (`fit_personal_cashflow`), picking the regression or a naive baseline by your own error, and
+  the page says so. Before that it falls back to the global model, which is trained on every account's combined
+  totals (so its scale and quoted error describe the warehouse, not you) and the page labels it a rough guide.
 - **Global models, per-user inference.** Both models train once on all data
   in the warehouse and score per-user transactions from that shared model,
   by design (matches typical fraud/forecasting setups where you don't have

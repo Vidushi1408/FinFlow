@@ -109,7 +109,10 @@ async function loadForecast() {
             same_period_last_month: 'a naive same-period-last-month baseline (it beat the regression in backtesting)',
             trailing_30d_avg: 'your trailing 30-day average (it beat the regression in backtesting)'
         }[data.strategy] || 'the model';
-        noteEl.innerText = `Using ${strategyLabel}. Backtest MAE: ${formatINR(data.backtest_mae || 0)}/day. Shaded band is an approximate 80% prediction interval.`;
+        const scopeNote = data.scope === 'personal'
+            ? `Fitted on your own spending; typical error on your recent days was ${formatINR(data.backtest_mae || 0)}/day.`
+            : `Not enough of your own history yet, so this uses a population model (error ${formatINR(data.backtest_mae || 0)}/day, measured across all accounts, so treat it as a rough guide).`;
+        noteEl.innerText = `Using ${strategyLabel}. ${scopeNote} Shaded band is an approximate 80% prediction interval.`;
     } catch (err) {
         document.getElementById('forecastLoading').classList.add('d-none');
         document.getElementById('forecastEmpty').classList.remove('d-none');

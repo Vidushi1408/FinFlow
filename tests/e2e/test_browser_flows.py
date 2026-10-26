@@ -96,8 +96,12 @@ def test_report_chat_chip_gets_an_answer_and_affordability_uses_rules(page, base
     page.goto(f"{base_url}/reports")
     sync_api.expect(page.locator("#adviceList .badge").first).to_be_visible(timeout=15000)
 
-    page.click("text=Where can I cut spending?")
+    page.fill("#chatInput", "Tell me about my spending patterns")   # free text goes to the (mocked) model
+    page.click("#chatSendBtn")
     sync_api.expect(page.locator("#chatLog")).to_contain_text("Trim dining a little.", timeout=15000)
+
+    page.click("text=Where can I cut spending?")                      # answered by rules, no model
+    sync_api.expect(page.locator("#chatLog")).to_contain_text("flexible money", timeout=15000)
 
     page.click("text=Can I afford a ₹20,000 purchase next month?")
     sync_api.expect(page.locator("#chatLog")).to_contain_text("₹20,000 purchase", timeout=15000)

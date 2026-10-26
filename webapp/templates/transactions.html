@@ -137,11 +137,18 @@ async function loadTransactions(page) {
     }
 }
 
+// Statements usually carry a date but no time of day; showing "12:00:00 AM" would be noise.
+function formatTxDate(ts) {
+    const d = new Date(ts);
+    const midnight = d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0;
+    return midnight ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : d.toLocaleString('en-IN');
+}
+
 function renderRows(transactions) {
     const body = document.getElementById('txBody');
     body.innerHTML = transactions.map(t => `
         <tr>
-            <td>${new Date(t.transaction_ts).toLocaleString()}</td>
+            <td>${formatTxDate(t.transaction_ts)}</td>
             <td>${escapeHtml(t.merchant_id)}${t.is_flagged ? ' <span class="badge text-bg-danger" title="Looks unusual compared with your normal activity">unusual</span>' : ''}</td>
             <td>
                 <span class="editable-category" data-tid="${escapeHtml(t.transaction_id)}" data-cat="${escapeHtml(t.category_id)}">${escapeHtml(t.category_id)}</span>
