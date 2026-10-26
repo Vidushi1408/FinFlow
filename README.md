@@ -42,7 +42,7 @@ Flask web app with server-rendered pages and a JSON API.
 - Budgets: per-category monthly limits, progress bars, projected month-end spend
 - Subscriptions: cadence + amount-stability detection (not "seen 3 times"),
   with "cancel candidate" / "not a subscription" overrides
-- Alerts: unusual-activity flags (an anomaly detector, not a fraud verdict) explained in terms of the user's own behavior, with
+- Alerts: unusual-activity flags from the model **plus plain rules that don't depend on its score** (a large first-ever payee, gift-card/forex/crypto-style merchants, a known merchant suddenly charging 3x its previous maximum), with a 30-day to 12-month look-back measured from your newest transaction; routine repeats like rent are not alerts. Unusual-activity flags (an anomaly detector, not a fraud verdict) explained in terms of the user's own behavior, with
   "This was me" / "Report as suspicious" feedback capture
 - Forecast & What-If: 30-day spend forecast with a prediction interval,
   budget-reduction sliders showing projected 6-month balance impact

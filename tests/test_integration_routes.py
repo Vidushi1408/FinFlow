@@ -493,7 +493,8 @@ def test_alert_cutoff_personalises_with_enough_history_and_can_be_switched_off(m
         pytest.skip("seeded demo history is shorter than the personalisation minimum")
     assert personal["threshold_source"] == "personal" and personal["threshold"] > 0.5
     assert 0 < len(personal["alerts"]) < len(raw["alerts"])
-    assert all(a["fraud_probability"] >= personal["threshold"] for a in personal["alerts"])
+    # model alerts clear the personal cutoff; rule alerts (large first-time payees etc.) are allowed under it
+    assert all(a["fraud_probability"] >= personal["threshold"] for a in personal["alerts"] if a["source"] == "model")
 
 
 def test_alerts_learn_from_feedback_and_only_reorder(make_client, monkeypatch):

@@ -155,6 +155,12 @@ try:
         for a in sorted(raw["alerts"], key=lambda a: -a["fraud_probability"])[:12]:
             print("     ", round(a["fraud_probability"], 3), a["merchant_id"][:46], a["amount"])
         print("   suppressed routine in default view:", alerts["suppressed_routine_count"])
+        year = api("/api/v1/fraud/alerts?threshold=0.5&days=365")["data"]
+        year_names = " | ".join(a["merchant_id"] for a in year["alerts"])
+        print("   12-month alerts:", [(a["merchant_id"][:34], a["amount"], a["source"]) for a in year["alerts"]])
+        for expected in ("GIFTCARDS", "QUICKCASH", "UNKNOWN INTL", "APPLE INDIA STORE", "CROMA"):
+            check(expected in year_names, f"12-month alerts include the planted charge: {expected}")
+        check(not any(x in year_names for x in ("LANDLORD", "NIPPON", "NETFLIX", "LOAN EMI")), "routine rent/EMI/SIP/subscriptions are not alerts")
         planted = [m for m in flagged if "UNKNOWN INTL" in m or "QUICKCASH" in m or "GIFTCARDS" in m or "CROMA" in m or "APPLE" in m]
         check(len(planted) >= 1, f"planted out-of-pattern charges surface as alerts ({planted})")
 

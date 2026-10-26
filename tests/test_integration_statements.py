@@ -324,3 +324,36 @@ def test_year_long_statement_subscriptions_and_alerts_make_sense(import_as, monk
     names = [a["merchant_id"] for a in alerts["alerts"]]
     assert alerts["suppressed_routine_count"] > 0
     assert not any("LANDLORD" in n or "NIPPON" in n or "NETFLIX" in n for n in names)   # routine repeats are not alerts
+
+
+def test_rules_alert_on_odd_charges_even_when_the_model_scores_everything_as_normal(import_as, monkeypatch):
+    """The model can miss obviously odd charges (a first-ever payee for tens of thousands, a gift-card
+    merchant). With the model scoring every row as perfectly normal, rule triggers must still raise them,
+    and routine repeats (rent, EMI, subscriptions) must not appear."""
+    from datetime import date
+    import pathlib
+    import tempfile
+    import webapp.routes.fraud as fraud_module
+    from scripts.generate_sample_statement import generate, write_csv
+
+    csv_path = write_csv(generate(date.today(), 7), pathlib.Path(tempfile.mkdtemp()) / "year.csv")
+    _, send = import_as()
+    assert send("/upload", csv_path.read_text()).get_json()["transactions_added"] > 500
+
+    def all_normal(df):
+        out = df.copy()
+        out["fraud_probability"] = 0.05
+        out["is_flagged"] = False
+        return out
+
+    monkeypatch.setattr(fraud_module, "predict_fraud", all_normal)
+    body = send.client.get("/api/v1/fraud/alerts?days=365").get_json()
+    names = " | ".join(a["merchant_id"] for a in body["alerts"])
+    for expected in ("GIFTCARDS", "QUICKCASH", "UNKNOWN INTL", "APPLE INDIA STORE", "CROMA"):
+        assert expected in names, (expected, names)
+    assert all(a["source"] == "rule" and a["reasons"] for a in body["alerts"])
+    assert not any(x in names for x in ("LANDLORD", "NIPPON", "NETFLIX", "SWIGGY", "LOAN EMI"))
+    assert body["window_days"] == 365
+    # a shorter look-back drops the older ones
+    recent = send.client.get("/api/v1/fraud/alerts?days=30").get_json()
+    assert len(recent["alerts"]) < len(body["alerts"])

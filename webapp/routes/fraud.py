@@ -6,6 +6,7 @@ from ml.fraud_model import predict_fraud
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from etl.transform.clean import merchant_key
+from webapp.services.alert_rules import evaluate as evaluate_alert_rules
 from webapp.services.alert_learning import LOOKS_LIKE_YOURS_BELOW, build_features, fit_feedback_model, p_suspicious
 from webapp.services.alert_threshold import effective_threshold
 
@@ -14,7 +15,7 @@ fraud_bp = Blueprint('fraud', __name__, url_prefix='/api/v1/fraud')
 TRUSTED_MERCHANT_AMOUNT_TOLERANCE = 1.5
 ROUTINE_MIN_PRIOR = 3          # same-merchant history needed to call a charge routine
 ROUTINE_AMOUNT_TOLERANCE = 0.20  # within 20% of that merchant's usual amount
-ALERT_WINDOW_ROWS = 200      # most recent debits an alert can come from
+DEFAULT_WINDOW_DAYS = 90     # alerts look this far back from the user's most recent transaction
 HISTORY_ROWS = 2000          # recent debits scored to learn this user's own normal level
 
 
@@ -64,6 +65,17 @@ def _explain(row, profile):
     if not reasons:
         reasons.append("unusual pattern compared with your normal activity")
     return reasons
+
+
+GENERIC_REASON = "unusual pattern compared with your normal activity"
+
+
+def _combine_reasons(model_reasons, rule_reasons):
+    """Model-derived reasons plus rule reasons; the model's generic fallback line is dropped when a rule
+    already explains the alert in specific terms."""
+    if not rule_reasons:
+        return model_reasons
+    return [r for r in model_reasons if r != GENERIC_REASON] + rule_reasons
 
 
 def _learn_from_feedback(account_ids, profile):
@@ -128,8 +140,14 @@ def get_fraud_alerts():
     if request.args.get('personalize', default='1') != '0':
         threshold, threshold_source = effective_threshold(df['fraud_probability'], threshold)
 
-    flagged = df.head(ALERT_WINDOW_ROWS)
-    flagged = flagged[flagged['fraud_probability'] >= threshold]
+    # Window: the last N days up to the user's NEWEST transaction (not today's date, so an old statement still
+    # shows its alerts). Rule triggers (see alert_rules) fire regardless of the model score or the cutoff.
+    profile = _build_user_profile(account_ids)
+    window_days = min(max(request.args.get('days', default=DEFAULT_WINDOW_DAYS, type=int), 7), 365)
+    stamps = pd.to_datetime(df['transaction_ts'])
+    windowed = df[stamps >= stamps.max() - pd.Timedelta(days=window_days)]
+    rule_hits = evaluate_alert_rules(windowed, df, float(profile["median_amount"]))
+    flagged = windowed[(windowed['fraud_probability'] >= threshold) | windowed['transaction_id'].isin(rule_hits)]
 
     # Feedback already given by this user, so alerts they've dismissed/confirmed aren't re-shown as pending.
     feedback_rows = g.db.execute(
@@ -137,8 +155,6 @@ def get_fraud_alerts():
         {"uid": current_user.id}
     ).fetchall()
     feedback_map = {r[0]: r[1] for r in feedback_rows}
-
-    profile = _build_user_profile(account_ids)
 
     # "This was me" teaches the alert list: later charges from a merchant the user has confirmed are
     # not re-flagged unless the amount is well above anything they confirmed there (a 10x charge at a
@@ -193,7 +209,8 @@ def get_fraud_alerts():
             "date": str(row['date']),
             "fraud_probability": float(row['fraud_probability']),
             "is_flagged": bool(row['is_flagged']),
-            "reasons": _explain(row, profile),
+            "reasons": _combine_reasons(_explain(row, profile), rule_hits.get(row['transaction_id'])),
+            "source": "rule" if row['transaction_id'] in rule_hits and row['fraud_probability'] < threshold else "model",
             "feedback": feedback_map.get(row['transaction_id']),
             "p_suspicious": round(float(p_map[row['transaction_id']]), 3) if row['transaction_id'] in p_map else None,
             "resembles_yours": bool(row['transaction_id'] in p_map and p_map[row['transaction_id']] < LOOKS_LIKE_YOURS_BELOW),
@@ -207,7 +224,8 @@ def get_fraud_alerts():
         "alerts": alerts,
         "learning": learning,
         "suppressed_trusted_merchant_count": suppressed,
-        "suppressed_routine_count": suppressed_routine
+        "suppressed_routine_count": suppressed_routine,
+        "window_days": window_days
     })
 
 
