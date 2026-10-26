@@ -27,7 +27,9 @@ Flask web app with server-rendered pages and a JSON API.
   account, so rotating IPs can't grind one password), and self-service password reset: signed,
   60-minute, single-use links (no token table; the link dies when the password changes), with the same
   response whether or not the email exists. Mail goes via `SMTP_*` settings; without them the link is
-  logged for local development. There is no email *verification* at signup yet
+  logged for local development. Signup sends a signed confirmation link (7-day, tied to the address); until it's used a banner offers a
+  resend. Verification is soft: it doesn't block login or any feature, and accounts that existed before it
+  (including the demo users) count as verified. Existing databases need `python database/migrate.py` (migration 0006)
 - Onboarding: upload a bank CSV (with a column-mapping preview) or load realistic demo data for a persona.
   All of your imported statements go into one account; re-uploading a file, or an overlapping one, only adds the rows that are new
 - Dashboard: financial health score (0–100, broken into savings rate / budget
@@ -346,7 +348,7 @@ python scripts/stream_data.py --once                       # single batch, then 
   an inline handler is reintroduced, and a browser test walks every page and demands a clean console. Violations
   are logged via `/csp-report`. Exceptions: styles still allow inline (`style="..."` is used throughout), and
   the bundled Swagger UI page (`/api/docs`) only gets the base directives because it ships its own inline script.
-- **What isn't:** no email verification at signup, no error tracking.
+- **What isn't:** no error tracking, and email verification is informational rather than a gate.
 - Internal errors are logged server-side; clients only see generic messages.
 - **Rate-limit storage.** Set `REDIS_URL` to share login-rate-limit counters
   across workers/containers via Redis; without it, Flask-Limiter falls back to
@@ -500,7 +502,7 @@ shown either way, so the forecast never claims false precision.
 - Retrain the fraud model on feedback. Today "This was me" suppresses repeat alerts for that merchant
   and the Model Info page reports how you judged your alerts, but the labels don't feed training (an
   unsupervised Isolation Forest has no natural place for them; a supervised stage on top would)
-- Email verification at signup, and an error-tracking integration (e.g. Sentry)
+- An error-tracking integration (e.g. Sentry), and making email verification gate sensitive actions
 - Tighten `style-src` (drop inline styles) and self-host Chart.js/Bootstrap so `script-src` needs no CDN
 - Real, anonymised bank statements added to `tests/fixtures/bank_statements/` whenever an import fails;
   the current fixtures are reconstructions of the layouts, not real exports

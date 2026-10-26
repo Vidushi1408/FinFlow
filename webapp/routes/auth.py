@@ -9,7 +9,10 @@ from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from webapp.forms import SignupForm, LoginForm, DemoLoadForm, ForgotPasswordForm, ResetPasswordForm
-from webapp.services.password_reset import make_reset_token, read_reset_token, send_reset_email, token_matches_password
+from webapp.services.password_reset import (
+    make_reset_token, make_verify_token, read_reset_token, read_verify_token, send_reset_email,
+    send_verification_email, token_matches_password,
+)
 from webapp.auth import User
 from webapp.extensions import limiter
 from webapp.services.demo_seed import seed_demo_data_for_user
@@ -60,7 +63,9 @@ def signup():
         )
         g.db.commit()
 
-        login_user(User(user_id, form.name.data.strip(), form.email.data.lower().strip(), 'INR'))
+        email = form.email.data.lower().strip()
+        send_verification_email(email, url_for('auth.verify_email', token=make_verify_token(user_id, email), _external=True))
+        login_user(User(user_id, form.name.data.strip(), email, 'INR', email_verified=False))
         return redirect(url_for('auth.onboarding'))
 
     return render_template('auth/signup.html', form=form)
@@ -82,7 +87,7 @@ def login():
     form = LoginForm()
     if form.validate_on_submit():
         row = g.db.execute(
-            text("SELECT user_id, name, email, currency, alert_sensitivity, password_hash, onboarded_at FROM dim_user WHERE email = :email"),
+            text("SELECT user_id, name, email, currency, alert_sensitivity, password_hash, onboarded_at, email_verified_at FROM dim_user WHERE email = :email"),
             {"email": form.email.data.lower().strip()}
         ).fetchone()
 
@@ -90,7 +95,7 @@ def login():
             flash('Invalid email or password.', 'error')
             return render_template('auth/login.html', form=form)
 
-        login_user(User(row[0], row[1], row[2], row[3], row[4]), remember=form.remember.data)
+        login_user(User(row[0], row[1], row[2], row[3], row[4], email_verified=row[7] is not None), remember=form.remember.data)
 
         next_page = safe_next_url(request.args.get('next'))
         if next_page:
@@ -188,3 +193,37 @@ def reset_password(token):
         return redirect(url_for('auth.login'))
 
     return render_template('auth/reset_password.html', form=form)
+
+
+@auth_bp.route('/verify-email/<token>')
+def verify_email(token):
+    """Confirms the address in the link. Works whether or not the visitor is logged in, and only for the
+    address the token was issued for (so changing the email later invalidates old links)."""
+    parsed = read_verify_token(token)
+    row = None
+    if parsed:
+        row = g.db.execute(text("SELECT email FROM dim_user WHERE user_id = :uid"), {"uid": parsed[0]}).fetchone()
+    if not row or row[0] != parsed[1]:
+        flash('That confirmation link is invalid or has expired. Log in and request a new one.', 'error')
+        return redirect(url_for('auth.login'))
+    g.db.execute(
+        text("UPDATE dim_user SET email_verified_at = COALESCE(email_verified_at, :now) WHERE user_id = :uid"),
+        {"now": datetime.utcnow(), "uid": parsed[0]}
+    )
+    g.db.commit()
+    flash('Email confirmed. Thanks!', 'success')
+    return redirect(url_for('index') if current_user.is_authenticated else url_for('auth.login'))
+
+
+@auth_bp.route('/resend-verification', methods=['POST'])
+@login_required
+@limiter.limit('3 per hour')
+def resend_verification():
+    if current_user.email_verified:
+        flash('Your email is already confirmed.', 'success')
+    else:
+        send_verification_email(
+            current_user.email,
+            url_for('auth.verify_email', token=make_verify_token(current_user.id, current_user.email), _external=True))
+        flash('Confirmation email sent. Check your inbox.', 'success')
+    return redirect(request.referrer if safe_next_url(urlsplit(request.referrer or '').path) else url_for('index'))

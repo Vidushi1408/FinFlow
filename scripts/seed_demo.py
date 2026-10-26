@@ -137,6 +137,8 @@ def _generate_and_load():
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE dim_user SET onboarded_at = CURRENT_TIMESTAMP WHERE onboarded_at IS NULL")
+        # Generated users have no real mailbox; treat them as verified so the demo login has no nag banner.
+        cursor.execute("UPDATE dim_user SET email_verified_at = CURRENT_TIMESTAMP WHERE email_verified_at IS NULL")
         conn.commit()
     finally:
         conn.close()

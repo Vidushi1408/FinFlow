@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS dim_user (
 );
 ALTER TABLE dim_user ADD COLUMN IF NOT EXISTS alert_sensitivity NUMERIC(3,2) NOT NULL DEFAULT 0.80;
 ALTER TABLE dim_user ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMP;
+-- NULL = email not confirmed yet. Existing rows are backfilled as verified by migration 0006.
+ALTER TABLE dim_user ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS dim_account (
     account_id VARCHAR(50) PRIMARY KEY,

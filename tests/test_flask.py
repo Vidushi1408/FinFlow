@@ -592,7 +592,7 @@ def test_login_succeeds_and_redirects_to_dashboard_when_onboarded(client, mock_d
     from datetime import datetime, timezone
     mock_db.execute.return_value.fetchone.return_value = (
         FAKE_USER_ID, "Test User", "test@example.com", "INR", 0.8,
-        generate_password_hash("correct-password"), datetime.now(timezone.utc)
+        generate_password_hash("correct-password"), datetime.now(timezone.utc), datetime.now(timezone.utc)
     )
     response = client.post("/login", data={
         "email": "test@example.com", "password": "correct-password", "submit": "Log in"
@@ -963,7 +963,7 @@ def test_safe_next_url_allows_same_site_paths(target):
 def test_login_never_redirects_off_site_via_next(client, mock_db, monkeypatch):
     from werkzeug.security import generate_password_hash
     mock_db.execute.return_value.fetchone.return_value = (
-        "22222222-2222-2222-2222-222222222222", "T", "t@example.com", "INR", 0.8, generate_password_hash("correct-horse"), "2026-01-01")
+        "22222222-2222-2222-2222-222222222222", "T", "t@example.com", "INR", 0.8, generate_password_hash("correct-horse"), "2026-01-01", "2026-01-01")
     for next_url in ("//evil.com", "/\\evil.com", "https://evil.com"):
         response = client.post(f"/login?next={next_url}", data={"email": "t@example.com", "password": "correct-horse"})
         assert response.status_code == 302
@@ -974,7 +974,7 @@ def test_login_never_redirects_off_site_via_next(client, mock_db, monkeypatch):
 def test_login_still_honours_a_safe_next(client, mock_db):
     from werkzeug.security import generate_password_hash
     mock_db.execute.return_value.fetchone.return_value = (
-        "22222222-2222-2222-2222-222222222222", "T", "t@example.com", "INR", 0.8, generate_password_hash("correct-horse"), "2026-01-01")
+        "22222222-2222-2222-2222-222222222222", "T", "t@example.com", "INR", 0.8, generate_password_hash("correct-horse"), "2026-01-01", "2026-01-01")
     response = client.post("/login?next=/transactions", data={"email": "t@example.com", "password": "correct-horse"})
     assert response.headers["Location"].endswith("/transactions")
 

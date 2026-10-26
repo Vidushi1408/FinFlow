@@ -112,3 +112,36 @@ def test_failed_logins_lock_one_account_even_from_fresh_clients(client, user):
     finally:
         limiter.reset()
         limiter.enabled = False
+
+
+# --- email verification ---
+
+def test_signup_starts_unverified_sends_a_link_and_the_link_verifies(client, monkeypatch):
+    import webapp.routes.auth as routes
+    sent_links = []
+    monkeypatch.setattr(routes, "send_verification_email", lambda to, url: sent_links.append((to, url)))
+
+    email = f"new-{uuid.uuid4().hex[:8]}@example.com"
+    response = client.post("/signup", data={"name": "New Person", "email": email, "password": "long-enough-1", "confirm_password": "long-enough-1"})
+    assert response.status_code == 302
+    assert query("SELECT email_verified_at FROM dim_user WHERE email = %s", (email,))[0][0] is None
+    assert "Please confirm your email address" in client.get("/onboarding").get_data(as_text=True)
+
+    assert sent_links and sent_links[0][0] == email
+    assert client.get(_token_path(sent_links[0][1])).status_code == 302
+    assert query("SELECT email_verified_at FROM dim_user WHERE email = %s", (email,))[0][0] is not None
+    assert "Please confirm your email address" not in client.get("/onboarding").get_data(as_text=True)
+
+
+def test_bad_or_other_users_verification_tokens_do_nothing(client, user):
+    from webapp.services.password_reset import make_verify_token
+    assert "login" in client.get("/verify-email/garbage").headers["Location"]
+    # a token for an address that is no longer the account's address is rejected
+    with app_module.app.app_context():
+        stale = make_verify_token(user["id"], "old-address@example.com")
+    assert "login" in client.get(f"/verify-email/{stale}").headers["Location"]
+    assert query("SELECT email_verified_at FROM dim_user WHERE user_id = %s", (user["id"],))[0][0] is None
+
+
+def test_resend_requires_login(client):
+    assert client.post("/resend-verification").status_code == 302
