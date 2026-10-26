@@ -7,6 +7,7 @@ from sqlalchemy import text
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from etl.transform.clean import merchant_key
+from webapp.services.category_suggestions import closest_category, known_categories
 from webapp.services.pdf_utils import pdf_inr
 
 transactions_bp = Blueprint('transactions', __name__, url_prefix='/api/v1/transactions')
@@ -133,10 +134,16 @@ def unknown_payees():
             GROUP BY merchant_id ORDER BY SUM(amount) DESC LIMIT 5
         """), {"aids": account_ids}
     ).fetchall()
-    return jsonify({"payees": [
-        {"merchant_id": r[0], "total_spent": float(r[1]), "transaction_count": int(r[2]), "sample_transaction_id": r[3]}
-        for r in rows
-    ]})
+    known = known_categories(g.db, current_user.id, account_ids)
+    payees = []
+    for r in rows:
+        suggestion = closest_category(merchant_key(r[0]), known)
+        payees.append({
+            "merchant_id": r[0], "total_spent": float(r[1]), "transaction_count": int(r[2]), "sample_transaction_id": r[3],
+            "suggested_category": suggestion[0] if suggestion else None,
+            "suggested_because": suggestion[1] if suggestion else None,
+        })
+    return jsonify({"payees": payees})
 
 
 @transactions_bp.route('/<transaction_id>/category', methods=['PATCH'])

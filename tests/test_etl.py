@@ -475,3 +475,26 @@ def test_idempotency_key_does_not_depend_on_other_rows_times():
     with_a_timed_row = pd.DataFrame({'account_id': ['a', 'a'], 'date': pd.Series([pd.Timestamp('2026-08-01'), pd.Timestamp('2026-08-02 13:45:00')]),
                                      'amount': [10.0, 5.0], 'merchant_id': ['X', 'Y']})
     assert compute_idempotency_key(midnight_only).iloc[0] == compute_idempotency_key(with_a_timed_row).iloc[0]
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.mark.parametrize("text,expected", [
+    ("BARBEQUE NATION", "FOOD"), ("AMAZON PRIME", "ENTERTAINMENT"), ("APPLE INDIA STORE", "SHOPPING"),
+    ("CROMA ELECTRONICS", "SHOPPING"), ("POS GLOBAL GIFTCARDS HK", "SHOPPING"),
+    ("ATW-512345XXXXXX1234-HDFC BANK ATM-6983", "TRANSFER"), ("INT.PD:SAVINGS A/C INTEREST", "INCOME"),
+    ("NEFT CR-ACME-PERFORMANCE BONUS", "INCOME"), ("ACH D- NIPPON INDIA MUTUAL FUND-SIP", "FINANCE"),
+    ("BBPS-INDRAPRASTHA GAS-PNG BILL", "UTILITIES"), ("CULT.FIT MEMBERSHIP", "HEALTH"),
+])
+def test_added_keywords_categorise_common_statement_text(text, expected):
+    from etl.transform.clean import categorize_transactions
+    out = categorize_transactions(pd.DataFrame({"description": [text], "merchant_id": [text]}))
+    assert out["category_id"].iloc[0] == expected
+
+
+def test_a_person_paying_via_upi_stays_upi_not_forced_into_a_merchant_category():
+    from etl.transform.clean import categorize_transactions
+    text = "UPI-ARJUN MEHTA-arjunmehta@okhdfcbank-HDFC0000001-524043497256-P2P"
+    out = categorize_transactions(pd.DataFrame({"description": [text], "merchant_id": ["ARJUN MEHTA"]}))
+    assert out["category_id"].iloc[0] == "UPI"

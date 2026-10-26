@@ -357,3 +357,34 @@ def test_rules_alert_on_odd_charges_even_when_the_model_scores_everything_as_nor
     # a shorter look-back drops the older ones
     recent = send.client.get("/api/v1/fraud/alerts?days=30").get_json()
     assert len(recent["alerts"]) < len(body["alerts"])
+
+
+def _category_of(account, merchant):
+    return query("SELECT category_id FROM fact_transactions WHERE account_id = %s AND merchant_id = %s LIMIT 1", (account, merchant))[0][0]
+
+
+def test_a_payee_named_like_one_you_already_categorised_inherits_its_category(import_as):
+    user, send = import_as()
+    send("/upload", HEADER + "01/08/2026,XQVLORNT,100.00,,9900.00\n")
+    (account,) = _accounts(user)
+    assert _category_of(account, "XQVLORNT") == "OTHER"                      # nothing in the keyword list knows it
+    tx = query("SELECT transaction_id FROM fact_transactions WHERE account_id = %s", (account,))[0][0]
+    patched = send.client.patch(f"/api/v1/transactions/{tx}/category", json={"category_id": "GROCERY", "create_rule": True})
+    assert patched.status_code == 200
+
+    send("/upload", HEADER + "02/08/2026,XQVLORNTS,120.00,,9780.00\n03/08/2026,QPZ WMXV LTD,50.00,,9730.00\n")
+    assert _category_of(account, "XQVLORNTS") == "GROCERY"                  # close name -> same category
+    assert _category_of(account, "QPZ WMXV LTD") == "OTHER"       # unrelated names are left alone
+
+
+def test_unknown_payee_helper_suggests_the_category_of_a_similar_known_payee(import_as):
+    user, send = import_as()
+    send("/upload", HEADER + "01/08/2026,UPI-XQVLORNTZ-zylo@okhdfcbank-HDFC0000001-524043506111-P2M,250.00,,9750.00\n"
+                             "02/08/2026,XQVLORNT,100.00,,9650.00\n")
+    (account,) = _accounts(user)
+    tx = query("SELECT transaction_id FROM fact_transactions WHERE account_id = %s AND merchant_id = 'XQVLORNT'", (account,))[0][0]
+    send.client.patch(f"/api/v1/transactions/{tx}/category", json={"category_id": "GROCERY", "create_rule": True})
+
+    payees = send.client.get("/api/v1/transactions/unknown-payees").get_json()["payees"]
+    suggestion = next(p for p in payees if p["merchant_id"] == "XQVLORNTZ")
+    assert suggestion["suggested_category"] == "GROCERY" and suggestion["suggested_because"] == "XQVLORNT"

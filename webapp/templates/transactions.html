@@ -77,7 +77,8 @@ async function loadUnknownPayees() {
     box.innerHTML = `<strong>Sort your biggest unlabelled UPI payees</strong> &mdash; one choice fixes every payment to them, now and in future uploads.`
         + payees.map(p => `<div class="d-flex flex-wrap align-items-center gap-2 mt-2">
             <span style="min-width: 220px;">${escapeHtml(p.merchant_id)} &middot; ${formatINR(p.total_spent)} (${p.transaction_count}&times;)</span>
-            <input list="categoryOptions" class="form-control form-control-sm" style="width: 150px;" placeholder="Category">
+            <input list="categoryOptions" class="form-control form-control-sm" style="width: 150px;" placeholder="Category" value="${escapeHtml(p.suggested_category || '')}">
+            ${p.suggested_category ? `<small style="color: var(--text-secondary);">suggested: similar to ${escapeHtml(p.suggested_because)}</small>` : ''}
             <button class="btn btn-sm btn-primary" data-tid="${escapeHtml(p.sample_transaction_id)}">Apply</button></div>`).join('');
     box.classList.remove('d-none');
     box.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {

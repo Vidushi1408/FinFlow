@@ -12,6 +12,8 @@ from ml.fraud_model import predict_fraud
 from etl.load.db import load_data
 from logging_config import logger
 from webapp.errors import error_response
+from webapp.db_utils import user_account_ids
+from webapp.services.category_suggestions import UNRESOLVED, closest_category, known_categories
 from webapp.services import statement_account
 
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/v1/transactions')
@@ -57,7 +59,8 @@ def _requested_mapping(raw_df):
 
 
 def _apply_user_rules(df, user_id):
-    """Apply this user's "always categorize X as Y" rules over the default categorization."""
+    """Apply this user's "always categorize X as Y" rules over the default categorization, then let payees
+    the keyword list couldn't place inherit the category of a closely-named payee the user already placed."""
     rules = g.db.execute(
         text("SELECT merchant_id, category_id FROM category_rule WHERE user_id = :uid"), {"uid": user_id}
     ).fetchall()
@@ -65,6 +68,13 @@ def _apply_user_rules(df, user_id):
         # Rules are stored by merchant identity (see merchant_key), so key both sides the same way.
         rule_map = {merchant_key(r[0]): r[1] for r in rules}
         df['category_id'] = df.apply(lambda row: rule_map.get(merchant_key(row['merchant_id']), row['category_id']), axis=1)
+
+    unresolved = df['category_id'].isin(UNRESOLVED)
+    if unresolved.any():
+        known = known_categories(g.db, user_id, user_account_ids(user_id))
+        if known:
+            df.loc[unresolved, 'category_id'] = df.loc[unresolved].apply(
+                lambda row: (closest_category(merchant_key(row['merchant_id']), known) or (row['category_id'],))[0], axis=1)
     return df
 
 

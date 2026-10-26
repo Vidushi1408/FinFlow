@@ -510,11 +510,12 @@ shown either way, so the forecast never claims false precision.
   from it (and only trusted if it reconciles with the amounts). Otherwise the
   account starts from ₹0 unless you enter your opening balance at import, so
   the balance shown is the net change since the first imported transaction.
-- **UPI payments to people stay in the generic `UPI` category.** The payee is
-  parsed out of the narration and matched against known merchants, but a
-  person's name can't be told apart from a small shop without more context.
-  The Transactions page lists your five biggest unlabelled payees; pick a
-  category once and every payment to them (and future uploads) follows.
+- **UPI payments to people stay in the generic `UPI` category.** A person's name can't be told apart from a
+  small shop without more context, and person-to-person payments are not forced into a spending category. The
+  keyword list covers common merchants; a payee it can't place that is named like one you've already labelled
+  (a re-spelling, `XYZ STORES` vs `XYZ STORE`) inherits that category at import, and the Transactions page lists
+  your five biggest unlabelled payees with that suggestion pre-filled. Pick a category once and every payment
+  to them (and future uploads) follows.
 
 ## Future work
 
