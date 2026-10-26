@@ -14,7 +14,7 @@ from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from webapp.extensions import limiter
 from webapp.services.advisor import (
-    PRIORITY_ORDER, affordability_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
+    PRIORITY_ORDER, affordability_reply, whatif_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
     grounded_fallback, unverified_figures,
 )
 from etl.transform.clean import summarize_recurring_series
@@ -388,6 +388,8 @@ def report_chat():
     if "affordability_check" in computed:
         return jsonify({"reply": affordability_reply(computed, recommendations), "month": report["month"],
                         "model": "rules"})
+    if "whatif_cut" in computed:
+        return jsonify({"reply": whatif_reply(computed), "month": report["month"], "model": "rules"})
     system_prompt = build_coach_system_prompt(report, recommendations, computed)
     messages = [{"role": "system", "content": system_prompt}, *clean_history, {"role": "user", "content": user_message}]
 

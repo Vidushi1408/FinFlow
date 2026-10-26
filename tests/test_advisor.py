@@ -87,3 +87,15 @@ def test_figure_verification_compares_numbers_not_text():
     assert unverified_figures("Can I afford ₹20,000?", ctx, "afford 20000") == []
     fallback = grounded_fallback([{"id": "x", "title": "T", "detail": "D"}])
     assert "T: D" in fallback and "couldn't verify" in fallback
+
+
+def test_whatif_cut_computes_from_category_average():
+    from webapp.services.advisor import computed_facts_for, whatif_reply
+    p = profile(category_avg={"Dining": 5000.0, "Rent": 18000.0}, balance=100000.0)
+    facts = computed_facts_for("What if I cut dining by 20%?", p)
+    w = facts["whatif_cut"]
+    assert w["category"] == "Dining" and w["monthly_saving"] == 1000.0
+    assert w["balance_in_6_months"] == 100000 + (20000 + 1000) * 6
+    assert "₹1,000/month" in whatif_reply(facts)
+    assert "whatif_cut" not in computed_facts_for("cut my spending", p)          # no % or category
+    assert "whatif_cut" not in computed_facts_for("cut groceries by 10%", p)      # unknown category

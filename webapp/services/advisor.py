@@ -300,9 +300,50 @@ def affordability(profile, amount):
     }
 
 
+_CUT_RE = re.compile(r"\b(cut|reduce|lower|trim|decrease|save on|spend less on)\b", re.I)
+_PERCENT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*(?:%|percent|per cent)", re.I)
+
+
+def whatif_cut(profile, message):
+    """'What if I cut dining by 20%?' -> monthly saving, 6-month balance, and new savings rate, from the
+    user's own category averages. None unless a known category and a percentage are both present."""
+    pct = _PERCENT_RE.search(message)
+    if not pct or not _CUT_RE.search(message):
+        return None
+    fraction = min(float(pct.group(1)), 100.0) / 100.0
+    lowered = message.lower()
+    category = next((c for c in sorted(profile["category_avg"], key=len, reverse=True) if c.lower() in lowered), None)
+    if category is None or fraction <= 0:
+        return None
+    monthly_saving = profile["category_avg"][category] * fraction
+    income, spend = profile["avg_monthly_income"], profile["avg_monthly_spend"]
+    new_rate = (income - (spend - monthly_saving)) / income if income > 0 else None
+    return {
+        "category": category, "cut_percent": round(fraction * 100, 1),
+        "usual_monthly_spend": round(profile["category_avg"][category], 2),
+        "monthly_saving": round(monthly_saving, 2),
+        "balance_in_6_months": round(profile["balance"] + (income - spend + monthly_saving) * 6, 2),
+        "savings_rate_after": round(new_rate * 100, 1) if new_rate is not None else None,
+        "savings_rate_before": round(profile["savings_rate"] * 100, 1) if profile["savings_rate"] is not None else None,
+    }
+
+
+def whatif_reply(facts):
+    w = facts["whatif_cut"]
+    parts = [f"Cutting {w['category']} by {w['cut_percent']:g}% (from about {_inr(w['usual_monthly_spend'])}/month) "
+             f"would free up about {_inr(w['monthly_saving'])}/month, roughly {_inr(w['monthly_saving'] * 12)} a year."]
+    if w["savings_rate_after"] is not None and w["savings_rate_before"] is not None:
+        parts.append(f"Your savings rate would go from {w['savings_rate_before']:g}% to {w['savings_rate_after']:g}%.")
+    parts.append(f"If everything else stays the same, your balance in six months would be about {_inr(w['balance_in_6_months'])}.")
+    return " ".join(parts)
+
+
 def computed_facts_for(message, profile):
     """Deterministic answers for questions the model would otherwise do arithmetic on."""
     facts = {}
+    cut = whatif_cut(profile, message)
+    if cut:
+        facts["whatif_cut"] = cut
     amount = parse_amount(message)
     if amount and _AFFORD_RE.search(message):
         facts["affordability_check"] = affordability(profile, amount)

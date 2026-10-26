@@ -407,3 +407,16 @@ def test_model_info_includes_only_this_users_alert_feedback(make_client):
     assert after["reviewed"] == after["confirmed_me"] + after["reported_suspicious"]
     bob = make_client("bob").get("/api/v1/models/info").get_json()["your_alert_feedback"]
     assert bob["reported_suspicious"] == 0
+
+
+def test_whatif_questions_are_answered_by_rules(make_client, monkeypatch):
+    import webapp.routes.reports as reports_module
+
+    monkeypatch.setattr(reports_module, "_call_ollama", lambda m: (_ for _ in ()).throw(AssertionError("model not needed")))
+    client = make_client("alice")
+    from tests.conftest import query
+    name = query("SELECT category_id FROM fact_transactions f JOIN dim_account a USING (account_id) "
+                 "WHERE a.user_id = (SELECT user_id FROM dim_user WHERE name = 'Alice') AND transaction_type = 'DEBIT' "
+                 "AND category_id NOT IN ('OTHER') GROUP BY category_id ORDER BY SUM(amount) DESC LIMIT 1")[0][0]
+    body = client.post("/api/v1/reports/chat", json={"message": f"What if I cut {name} by 25%?"}).get_json()
+    assert body["model"] == "rules" and "25%" in body["reply"]
