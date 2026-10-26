@@ -442,6 +442,7 @@ def test_fraud_alerts_returns_flagged_transactions(auth_client, mock_db, monkeyp
     mock_db.execute.return_value.fetchall.side_effect = [
         [("acc-1",)],  # user_account_ids
         [],            # fraud_feedback
+        [],            # trusted (CONFIRMED_ME) merchants
     ]
 
     tx_df = pd.DataFrame({

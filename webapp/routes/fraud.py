@@ -8,6 +8,8 @@ from webapp.errors import error_response
 
 fraud_bp = Blueprint('fraud', __name__, url_prefix='/api/v1/fraud')
 
+TRUSTED_MERCHANT_AMOUNT_TOLERANCE = 1.5
+
 
 def _build_user_profile(account_ids):
     """Median amount, known merchants, and common hours -- used to explain WHY
@@ -100,8 +102,26 @@ def get_fraud_alerts():
 
     profile = _build_user_profile(account_ids)
 
+    # "This was me" teaches the alert list: later charges from a merchant the user has confirmed are
+    # not re-flagged unless the amount is well above anything they confirmed there (a 10x charge at a
+    # trusted merchant is still worth a look).
+    trusted = {
+        r[0]: float(r[1]) for r in g.db.execute(text("""
+            SELECT f.merchant_id, MAX(f.amount) FROM fraud_feedback ff
+            JOIN fact_transactions f ON f.transaction_id = ff.transaction_id
+            WHERE ff.user_id = :uid AND ff.feedback = 'CONFIRMED_ME' AND f.account_id = ANY(:aids)
+            GROUP BY f.merchant_id
+        """), {"uid": current_user.id, "aids": account_ids}).fetchall()
+    }
+
     alerts = []
+    suppressed = 0
     for _, row in flagged.iterrows():
+        trusted_max = trusted.get(row['merchant_id'])
+        if (trusted_max is not None and float(row['amount']) <= trusted_max * TRUSTED_MERCHANT_AMOUNT_TOLERANCE
+                and feedback_map.get(row['transaction_id']) != 'SUSPICIOUS'):
+            suppressed += 1
+            continue
         alerts.append({
             "transaction_id": row['transaction_id'],
             "account_id": row['account_id'],
@@ -116,7 +136,8 @@ def get_fraud_alerts():
 
     return jsonify({
         "threshold": threshold,
-        "alerts": alerts
+        "alerts": alerts,
+        "suppressed_trusted_merchant_count": suppressed
     })
 
 

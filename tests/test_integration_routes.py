@@ -399,3 +399,32 @@ def test_csv_safe_neutralises_formula_injection():
     from webapp.routes.transactions import _csv_safe
     assert _csv_safe("=HYPERLINK(\"http://x\")") == "'=HYPERLINK(\"http://x\")"
     assert _csv_safe("Swiggy") == "Swiggy"
+
+
+def test_confirmed_merchant_is_not_reflagged_but_a_much_bigger_charge_is(make_client, world, monkeypatch):
+    import webapp.routes.fraud as fraud_module
+
+    def flag_everything(df):
+        out = df.copy()
+        out["fraud_probability"] = 0.99
+        out["is_flagged"] = True
+        return out
+
+    monkeypatch.setattr(fraud_module, "predict_fraud", flag_everything)
+    client = make_client("alice")
+
+    before = client.get("/api/v1/fraud/alerts?threshold=0.5").get_json()
+    assert before["alerts"] and before["suppressed_trusted_merchant_count"] == 0
+
+    chosen = before["alerts"][0]
+    merchant = chosen["merchant_id"]
+    same_merchant = [a for a in before["alerts"] if a["merchant_id"] == merchant]
+    ceiling = max(a["amount"] for a in same_merchant)
+    # Confirm the biggest charge at this merchant: everything there is now within tolerance.
+    biggest = max(same_merchant, key=lambda a: a["amount"])
+    assert client.post("/api/v1/fraud/feedback", json={"transaction_id": biggest["transaction_id"], "feedback": "CONFIRMED_ME"}).status_code == 200
+
+    after = client.get("/api/v1/fraud/alerts?threshold=0.5").get_json()
+    remaining = [a for a in after["alerts"] if a["merchant_id"] == merchant]
+    assert all(a["amount"] > ceiling * fraud_module.TRUSTED_MERCHANT_AMOUNT_TOLERANCE for a in remaining)
+    assert after["suppressed_trusted_merchant_count"] >= len(same_merchant) - len(remaining) > 0
