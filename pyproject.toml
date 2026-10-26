@@ -31,6 +31,7 @@ select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 markers = [
+    "e2e: drives a real browser (Playwright + Chromium); skipped automatically if either is missing",
     "integration: needs a real PostgreSQL server (creates and drops a throwaway database); skipped automatically if none is reachable",
 ]
 

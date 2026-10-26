@@ -6,3 +6,4 @@ ruff>=0.6.0
 black==23.9.1
 bandit>=1.9.0,<2
 pip-audit>=2.9.0,<3
+playwright>=1.45,<2

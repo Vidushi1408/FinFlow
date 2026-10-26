@@ -287,7 +287,9 @@ PostgreSQL server: they create a throwaway `finflow_test_*` database, apply
 data. They use the same `DB_*` settings as the app and are skipped
 automatically if no server is reachable. CI runs them against a Postgres
 service container and requires 80% coverage. To run only the fast,
-database-free tests: `pytest -m "not integration"`.
+database-free tests: `pytest -m "not integration"`. Browser tests (`tests/e2e/`, Playwright + Chromium: signup,
+demo data, dashboard, ledger export, the money-coach chat) need `pip install playwright && playwright install chromium`
+and skip themselves if either is missing; CI installs both.
 
 ### Live data stream (optional)
 

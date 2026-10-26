@@ -75,6 +75,8 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+      - name: Install Chromium for the browser (Playwright) tests
+        run: playwright install --with-deps chromium
       - name: Run tests with coverage (integration tests run against the Postgres and Redis services)
         run: |
           pytest tests/ -q \
