@@ -5,12 +5,15 @@ import pandas as pd
 from ml.fraud_model import predict_fraud
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
+from etl.transform.clean import merchant_key
 from webapp.services.alert_learning import LOOKS_LIKE_YOURS_BELOW, build_features, fit_feedback_model, p_suspicious
 from webapp.services.alert_threshold import effective_threshold
 
 fraud_bp = Blueprint('fraud', __name__, url_prefix='/api/v1/fraud')
 
 TRUSTED_MERCHANT_AMOUNT_TOLERANCE = 1.5
+ROUTINE_MIN_PRIOR = 3          # same-merchant history needed to call a charge routine
+ROUTINE_AMOUNT_TOLERANCE = 0.20  # within 20% of that merchant's usual amount
 ALERT_WINDOW_ROWS = 200      # most recent debits an alert can come from
 HISTORY_ROWS = 2000          # recent debits scored to learn this user's own normal level
 
@@ -158,9 +161,25 @@ def get_fraud_alerts():
         if learned is not None and not flagged.empty:
             p_map = dict(zip(flagged['transaction_id'], p_suspicious(learned, build_features(flagged, profile))))
 
+    # A charge that repeats a long-standing pattern (the 5th identical rent payment, the usual Swiggy
+    # order) is expected, however large it looks next to the user's median transaction. Unusual means
+    # unusual for THAT merchant too, so routine repeats are left out and counted.
+    df['_merchant_key'] = df['merchant_id'].map(merchant_key)
+
+    def is_routine(row):
+        history = df[(df['_merchant_key'] == merchant_key(row['merchant_id'])) & (df['transaction_id'] != row['transaction_id'])]
+        if len(history) < ROUTINE_MIN_PRIOR:
+            return False
+        usual = float(history['amount'].median())
+        return usual > 0 and abs(float(row['amount']) - usual) <= ROUTINE_AMOUNT_TOLERANCE * usual
+
     alerts = []
     suppressed = 0
+    suppressed_routine = 0
     for _, row in flagged.iterrows():
+        if feedback_map.get(row['transaction_id']) != 'SUSPICIOUS' and is_routine(row):
+            suppressed_routine += 1
+            continue
         trusted_max = trusted.get(row['merchant_id'])
         if (trusted_max is not None and float(row['amount']) <= trusted_max * TRUSTED_MERCHANT_AMOUNT_TOLERANCE
                 and feedback_map.get(row['transaction_id']) != 'SUSPICIOUS'):
@@ -187,7 +206,8 @@ def get_fraud_alerts():
         "threshold_source": threshold_source,
         "alerts": alerts,
         "learning": learning,
-        "suppressed_trusted_merchant_count": suppressed
+        "suppressed_trusted_merchant_count": suppressed,
+        "suppressed_routine_count": suppressed_routine
     })
 
 

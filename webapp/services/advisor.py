@@ -11,6 +11,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from etl.transform.clean import summarize_recurring_series
+from webapp.services.recurring import dominant_category, recurring_kind
 
 BUFFER_TARGET_MONTHS = 3
 LOW_SAVINGS_RATE = 0.10
@@ -96,7 +97,7 @@ def build_financial_profile(db, user_id, account_ids, today=None):
             })
 
     tx = pd.read_sql(text("""
-        SELECT transaction_id, account_id, merchant_id, amount, transaction_ts AS date
+        SELECT transaction_id, account_id, merchant_id, category_id, amount, transaction_ts AS date
         FROM fact_transactions WHERE account_id = ANY(:aids) AND transaction_type = 'DEBIT'
     """), db.connection(), params={"aids": account_ids})
     if not tx.empty:
@@ -106,8 +107,12 @@ def build_financial_profile(db, user_id, account_ids, today=None):
                 text("SELECT account_id, merchant_id, status FROM subscription_override WHERE user_id = :uid"),
                 {"uid": user_id}).fetchall()
         }
+        categories = dominant_category(tx)
         for _, r in summarize_recurring_series(tx).iterrows():
             if overrides.get((r["account_id"], r["merchant_id"])) == "NOT_SUBSCRIPTION":
+                continue
+            # Rent, EMIs, SIPs and utility bills recur too, but they aren't subscriptions you could cancel.
+            if recurring_kind(categories.get((r["account_id"], r["merchant_id"]))) != "subscription":
                 continue
             profile["subscriptions"].append({
                 "merchant_id": r["merchant_id"], "cadence": r["cadence"],
@@ -304,6 +309,31 @@ _CUT_RE = re.compile(r"\b(cut|reduce|lower|trim|decrease|save on|spend less on)\
 _PERCENT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*(?:%|percent|per cent)", re.I)
 
 
+# Everyday words for the app's categories ("dining" is FOOD), so "cut dining by 20%" resolves.
+CATEGORY_ALIASES = {
+    "FOOD": ("dining", "dine out", "restaurant", "eating out", "food delivery", "takeaway", "takeout", "food"),
+    "GROCERY": ("groceries", "grocery"),
+    "TRANSPORT": ("transport", "cab", "taxi", "commute", "travel", "uber", "ola"),
+    "SHOPPING": ("shopping", "clothes", "online shopping"),
+    "ENTERTAINMENT": ("entertainment", "movies", "streaming", "subscriptions"),
+    "UTILITIES": ("utilities", "bills", "electricity"),
+    "RECHARGE": ("recharge", "mobile", "phone bill"),
+    "FUEL": ("fuel", "petrol", "diesel"),
+    "HEALTH": ("health", "medical", "pharmacy"),
+}
+
+
+def _category_in(message_lower, category_avg):
+    """The user's category the message refers to: by its own name first, then by everyday alias."""
+    for cat in sorted(category_avg, key=len, reverse=True):
+        if cat.lower() in message_lower:
+            return cat
+    for cat, words in CATEGORY_ALIASES.items():
+        if cat in category_avg and any(re.search(rf"\b{re.escape(w)}", message_lower) for w in words):
+            return cat
+    return None
+
+
 def whatif_cut(profile, message):
     """'What if I cut dining by 20%?' -> monthly saving, 6-month balance, and new savings rate, from the
     user's own category averages. None unless a known category and a percentage are both present."""
@@ -312,7 +342,7 @@ def whatif_cut(profile, message):
         return None
     fraction = min(float(pct.group(1)), 100.0) / 100.0
     lowered = message.lower()
-    category = next((c for c in sorted(profile["category_avg"], key=len, reverse=True) if c.lower() in lowered), None)
+    category = _category_in(lowered, profile["category_avg"])
     if category is None or fraction <= 0:
         return None
     monthly_saving = profile["category_avg"][category] * fraction
@@ -330,7 +360,7 @@ def whatif_cut(profile, message):
 
 def whatif_reply(facts):
     w = facts["whatif_cut"]
-    parts = [f"Cutting {w['category']} by {w['cut_percent']:g}% (from about {_inr(w['usual_monthly_spend'])}/month) "
+    parts = [f"Cutting {w['category'].title()} by {w['cut_percent']:g}% (from about {_inr(w['usual_monthly_spend'])}/month) "
              f"would free up about {_inr(w['monthly_saving'])}/month, roughly {_inr(w['monthly_saving'] * 12)} a year."]
     if w["savings_rate_after"] is not None and w["savings_rate_before"] is not None:
         parts.append(f"Your savings rate would go from {w['savings_rate_before']:g}% to {w['savings_rate_after']:g}%.")
@@ -338,9 +368,23 @@ def whatif_reply(facts):
     return " ".join(parts)
 
 
+_PRIORITY_RE = re.compile(r"\b(what should i do|what do i do|where (do|should) i start|what('?s| is) my (top |biggest )?priority|first thing)\b", re.I)
+
+
+def priorities_reply(recommendations):
+    """'What should I do first?' answered straight from the ranked rules, in order, with a concrete next step."""
+    top = [r for r in recommendations if r["id"] not in ("on-track", "all-clear", "need-history")][:3]
+    if not top:
+        return "Nothing urgent: your savings, buffer, budgets and goals look healthy. Keep the routine going."
+    lines = [f"{i}. {r['title']}: {r['detail']}" for i, r in enumerate(top, 1)]
+    return "Here's what I'd do, in this order:\n" + "\n".join(lines) + f"\n\nNext step: start with #1, {top[0]['title'].lower()}."
+
+
 def computed_facts_for(message, profile):
     """Deterministic answers for questions the model would otherwise do arithmetic on."""
     facts = {}
+    if _PRIORITY_RE.search(message):
+        facts["priority_question"] = True
     cut = whatif_cut(profile, message)
     if cut:
         facts["whatif_cut"] = cut

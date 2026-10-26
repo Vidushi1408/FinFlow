@@ -99,3 +99,22 @@ def test_whatif_cut_computes_from_category_average():
     assert "₹1,000/month" in whatif_reply(facts)
     assert "whatif_cut" not in computed_facts_for("cut my spending", p)          # no % or category
     assert "whatif_cut" not in computed_facts_for("cut groceries by 10%", p)      # unknown category
+
+
+def test_whatif_understands_everyday_words_for_the_apps_categories():
+    from webapp.services.advisor import computed_facts_for
+    p = profile(category_avg={"FOOD": 8000.0, "GROCERY": 6000.0, "TRANSPORT": 3000.0})
+    assert computed_facts_for("What if I cut dining by 20%?", p)["whatif_cut"]["category"] == "FOOD"
+    assert computed_facts_for("reduce groceries by 10 percent", p)["whatif_cut"]["category"] == "GROCERY"
+    assert computed_facts_for("trim cab spending by 50%", p)["whatif_cut"]["category"] == "TRANSPORT"
+    assert "whatif_cut" not in computed_facts_for("cut movies by 20%", p)      # ENTERTAINMENT isn't in this user's data
+
+
+def test_what_should_i_do_is_answered_from_the_ranked_rules():
+    from webapp.services.advisor import computed_facts_for, priorities_reply
+    p = profile(avg_monthly_spend=47000.0, savings_rate=0.06, buffer_months=1.5, balance=70000.0)
+    assert computed_facts_for("What should I do first with my money?", p)["priority_question"]
+    assert "priority_question" not in computed_facts_for("Where can I cut spending?", p)
+    reply = priorities_reply(build_recommendations(p))
+    assert reply.startswith("Here's what I'd do") and "1. " in reply and "Next step" in reply
+    assert "Nothing urgent" in priorities_reply([{"id": "on-track", "title": "x", "detail": "y"}])

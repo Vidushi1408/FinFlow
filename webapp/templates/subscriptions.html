@@ -9,6 +9,7 @@
 <div class="card mb-3">
     <h3>Total Annual Subscription Cost</h3>
     <p class="metric" id="totalAnnual">--</p>
+    <p class="metric-sub" id="fixedAnnual"></p>
 </div>
 
 <div id="loadingState" class="state-placeholder">Looking for recurring charges&hellip;</div>
@@ -36,7 +37,10 @@ async function loadSubscriptions() {
         if (!res.ok) throw new Error('failed');
         const data = await res.json();
         document.getElementById('loadingState').classList.add('d-none');
-        document.getElementById('totalAnnual').innerText = formatINR(data.total_annual_cost);
+        document.getElementById('totalAnnual').innerText = formatINR(data.subscription_annual_cost ?? data.total_annual_cost);
+        const fixed = data.total_annual_cost - (data.subscription_annual_cost ?? data.total_annual_cost);
+        document.getElementById('fixedAnnual').innerText = fixed > 0.5
+            ? `Plus ${formatINR(fixed)}/year in fixed commitments (rent, EMIs, SIPs, bills), shown below but not counted here.` : '';
 
         if (data.subscriptions.length === 0) {
             document.getElementById('emptyState').classList.remove('d-none');
@@ -53,13 +57,13 @@ async function loadSubscriptions() {
 function renderSubs(subs) {
     document.getElementById('subsBody').innerHTML = subs.map(s => `
         <tr>
-            <td>${escapeHtml(s.merchant_id)}</td>
+            <td>${escapeHtml(s.merchant_id)} ${s.kind === 'fixed_commitment' ? '<span class="badge text-bg-secondary ms-1">fixed commitment</span>' : ''}</td>
             <td>${escapeHtml(s.cadence)}</td>
             <td>${formatINR(s.typical_amount)}</td>
             <td>${escapeHtml(s.next_expected_date)}</td>
             <td>${formatINR(s.annualized_cost)}</td>
             <td>
-                <button class="btn btn-sm btn-outline-warning" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" data-click="overrideCancel">Cancel candidate</button>
+                ${s.kind === 'fixed_commitment' ? '' : `<button class="btn btn-sm btn-outline-warning" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" data-click="overrideCancel">Cancel candidate</button>`}
                 <button class="btn btn-sm btn-outline-secondary" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" data-click="overrideNotSub">Not a subscription</button>
             </td>
         </tr>

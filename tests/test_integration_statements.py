@@ -60,6 +60,7 @@ def import_as(pg_db, make_user, monkeypatch):
             data = {"file": (io.BytesIO(csv_text.encode()), "statement.csv"), **extra}
             return client.post(f"/api/v1/transactions{path}", data=data, content_type="multipart/form-data")
 
+        send.client = client
         return user_id, send
 
     yield new_user
@@ -236,3 +237,90 @@ def test_imported_rows_are_scored_in_the_database_and_is_fraud_stays_false(impor
     rows = query("SELECT fraud_score, scored_at, is_fraud FROM fact_transactions WHERE account_id = %s", (account,))
     assert len(rows) == 3 and body["fraud_alerts_generated"] == 3
     assert all(float(score) == 0.91 and scored_at is not None and is_fraud is False for score, scored_at, is_fraud in rows)
+
+
+UPI_STATEMENT = (
+    HEADER +
+    "01/08/2026,UPI-SWIGGY-swiggy@okhdfcbank-HDFC0000001-524043506111-P2M,250.00,,9750.00\n"
+    "09/08/2026,UPI-SWIGGY-swiggy@okhdfcbank-HDFC0000001-524043507222-P2M,310.00,,9440.00\n"
+    "16/08/2026,UPI-SWIGGY-swiggy@okhdfcbank-HDFC0000001-524043508333-P2M,180.00,,9260.00\n"
+)
+
+
+def test_upi_payments_to_one_merchant_share_one_merchant_id_despite_unique_references(import_as):
+    user, send = import_as()
+    assert send("/upload", UPI_STATEMENT).get_json()["transactions_added"] == 3
+    (account,) = _accounts(user)
+    merchants = query("SELECT DISTINCT merchant_id FROM fact_transactions WHERE account_id = %s", (account,))
+    assert merchants == [("SWIGGY",)]
+
+
+def test_rows_imported_before_the_merchant_cleanup_are_still_recognised_on_reupload(import_as):
+    """Older imports stored the raw narration (cut to 50 chars) as merchant_id, so their transaction ids differ
+    from today's. Re-uploading must treat them as already imported, not add them a second time."""
+    from webapp.routes.upload import legacy_idempotency_keys
+    from etl.extract.csv_mapping import apply_mapping, read_csv_bytes, suggest_mapping
+
+    user, send = import_as()
+    assert send("/upload", UPI_STATEMENT).get_json()["transactions_added"] == 3
+    (account,) = _accounts(user)
+
+    # Rewrite the stored ids to what the previous version would have produced.
+    df = read_csv_bytes(UPI_STATEMENT.encode())
+    std, _ = apply_mapping(df, suggest_mapping(list(df.columns)))
+    std["account_id"] = account
+    from etl.transform.clean import compute_idempotency_key
+    current_ids, legacy_ids = list(compute_idempotency_key(std)), list(legacy_idempotency_keys(std))
+    assert current_ids != legacy_ids
+    import etl.load.db as db_module
+    conn = db_module.get_connection()
+    try:
+        cur = conn.cursor()
+        for current, old in zip(current_ids, legacy_ids):
+            cur.execute("UPDATE fact_transactions SET transaction_id = %s WHERE transaction_id = %s", (old, current))
+        conn.commit()
+    finally:
+        conn.close()
+
+    preview = send("/upload/preview", UPI_STATEMENT).get_json()
+    assert preview["summary"]["already_imported"] == 3 and preview["summary"]["new_rows"] == 0
+    again = send("/upload", UPI_STATEMENT).get_json()
+    assert again["transactions_added"] == 0 and again["duplicates_skipped"] == 3
+    assert _count(account) == 3
+
+
+def test_year_long_statement_subscriptions_and_alerts_make_sense(import_as, monkeypatch):
+    """End to end on the generated 12-month statement: real subscriptions are found under clean names, rent/EMI/SIP
+    are labelled fixed commitments (not counted as subscriptions), and routine repeats don't become alerts."""
+    from datetime import date
+    import numpy as np
+    import webapp.routes.fraud as fraud_module
+    from scripts.generate_sample_statement import generate, write_csv
+    import tempfile
+    import pathlib
+
+    csv_path = write_csv(generate(date.today(), 7), pathlib.Path(tempfile.mkdtemp()) / "year.csv")
+    user, send = import_as()
+    body = send("/upload", csv_path.read_text()).get_json()
+    assert body["transactions_added"] > 500
+
+    subs = send.client.get("/api/v1/insights/subscriptions").get_json()
+    by_name = {s["merchant_id"]: s for s in subs["subscriptions"]}
+    for name in ("NETFLIX.COM", "SPOTIFY INDIA", "AIRTEL POSTPAID", "AMAZON PRIME"):
+        assert by_name[name]["kind"] == "subscription", name
+    assert by_name["JIO FIBER BROADBAND"]["kind"] == "fixed_commitment"   # categorised UTILITIES: a bill, not a cancellable subscription
+    fixed = {n for n, s in by_name.items() if s["kind"] == "fixed_commitment"}
+    assert any("LANDLORD" in n for n in fixed) and any("NIPPON" in n for n in fixed) and any("LOAN EMI" in n for n in fixed)
+    assert subs["subscription_annual_cost"] < subs["total_annual_cost"]
+
+    def flag_everything(df):
+        out = df.copy()
+        out["fraud_probability"] = np.linspace(0.99, 0.9, len(df))
+        out["is_flagged"] = True
+        return out
+
+    monkeypatch.setattr(fraud_module, "predict_fraud", flag_everything)
+    alerts = send.client.get("/api/v1/fraud/alerts?threshold=0.5&personalize=0").get_json()
+    names = [a["merchant_id"] for a in alerts["alerts"]]
+    assert alerts["suppressed_routine_count"] > 0
+    assert not any("LANDLORD" in n or "NIPPON" in n or "NETFLIX" in n for n in names)   # routine repeats are not alerts

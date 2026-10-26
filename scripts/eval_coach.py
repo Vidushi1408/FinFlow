@@ -14,7 +14,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from webapp.routes.reports import OLLAMA_MODEL, OllamaError, _call_ollama, build_coach_system_prompt  # noqa: E402
-from webapp.services.advisor import affordability_reply, whatif_reply, build_recommendations, computed_facts_for, fix_currency, unverified_figures  # noqa: E402
+from webapp.services.advisor import affordability_reply, priorities_reply, whatif_reply, build_recommendations, computed_facts_for, fix_currency, unverified_figures  # noqa: E402
 
 PROFILE = {
     "avg_monthly_income": 60000.0, "avg_monthly_spend": 54000.0, "savings_rate": 0.10,
@@ -72,7 +72,8 @@ def main():
         prompt = build_coach_system_prompt(REPORT, recs, computed)
         try:
             if computed:  # answered by rules in the real route, never by the model
-                reply = affordability_reply(computed, recs) if "affordability_check" in computed else whatif_reply(computed)
+                reply = (affordability_reply(computed, recs) if "affordability_check" in computed
+                         else priorities_reply(recs) if "priority_question" in computed else whatif_reply(computed))
                 opts = {**opts, "rules_reply": True}
             else:
                 reply = _call_ollama([{"role": "system", "content": prompt}, {"role": "user", "content": question}])

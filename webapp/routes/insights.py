@@ -4,6 +4,7 @@ from sqlalchemy import text
 import pandas as pd
 from etl.transform.clean import summarize_recurring_series
 from webapp.db_utils import user_account_ids
+from webapp.services.recurring import dominant_category, recurring_kind
 from webapp.errors import error_response
 
 insights_bp = Blueprint('insights', __name__, url_prefix='/api/v1/insights')
@@ -16,7 +17,7 @@ def get_subscriptions():
         return jsonify({"total_annual_cost": 0, "subscriptions": []})
 
     query = text("""
-        SELECT transaction_id, account_id, merchant_id, amount, transaction_ts as date
+        SELECT transaction_id, account_id, merchant_id, category_id, amount, transaction_ts as date
         FROM fact_transactions
         WHERE account_id = ANY(:account_ids) AND transaction_type = 'DEBIT'
     """)
@@ -27,6 +28,7 @@ def get_subscriptions():
 
     df['date'] = pd.to_datetime(df['date'])
     summary = summarize_recurring_series(df)
+    categories = dominant_category(df)
 
     overrides = g.db.execute(
         text("SELECT account_id, merchant_id, status FROM subscription_override WHERE user_id = :uid"),
@@ -35,6 +37,7 @@ def get_subscriptions():
     override_map = {(r[0], r[1]): r[2] for r in overrides}
 
     total_annual = 0.0
+    subscription_annual = 0.0
     subs = []
     for _, row in summary.iterrows():
         status = override_map.get((row['account_id'], row['merchant_id']))
@@ -43,7 +46,13 @@ def get_subscriptions():
 
         annual_cost = float(row['annualized_cost'])
         total_annual += annual_cost
+        category = categories.get((row['account_id'], row['merchant_id']))
+        kind = recurring_kind(category)
+        if kind == "subscription":
+            subscription_annual += annual_cost
         subs.append({
+            "category_id": category,
+            "kind": kind,
             "account_id": row['account_id'],
             "merchant_id": row['merchant_id'],
             "cadence": row['cadence'],
@@ -58,6 +67,7 @@ def get_subscriptions():
 
     return jsonify({
         "total_annual_cost": total_annual,
+        "subscription_annual_cost": subscription_annual,
         "subscriptions": subs
     })
 

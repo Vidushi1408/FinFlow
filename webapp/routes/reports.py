@@ -15,10 +15,11 @@ from webapp.errors import error_response
 from webapp.extensions import limiter
 from webapp.services.pdf_utils import pdf_inr
 from webapp.services.advisor import (
-    PRIORITY_ORDER, affordability_reply, whatif_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
+    PRIORITY_ORDER, affordability_reply, priorities_reply, whatif_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
     grounded_fallback, unverified_figures,
 )
 from etl.transform.clean import summarize_recurring_series
+from webapp.services.recurring import subscriptions_only
 from ml.fraud_model import predict_fraud
 import pandas as pd
 
@@ -161,7 +162,7 @@ def _build_monthly_report(user_id, year, month):
     # Subscriptions active this period
     tx_df = pd.read_sql(
         text("""
-            SELECT transaction_id, account_id, merchant_id, amount, transaction_ts as date
+            SELECT transaction_id, account_id, merchant_id, category_id, amount, transaction_ts as date
             FROM fact_transactions
             WHERE account_id = ANY(:aids) AND transaction_type = 'DEBIT'
         """), g.db.connection(), params={"aids": account_ids}
@@ -170,7 +171,7 @@ def _build_monthly_report(user_id, year, month):
     subscription_count = 0
     if not tx_df.empty:
         tx_df['date'] = pd.to_datetime(tx_df['date'])
-        recurring = summarize_recurring_series(tx_df)
+        recurring = subscriptions_only(summarize_recurring_series(tx_df), tx_df)
         subscription_count = len(recurring)
         subscription_total = float(recurring['annualized_cost'].sum()) if not recurring.empty else 0.0
 
@@ -389,6 +390,8 @@ def report_chat():
     if "affordability_check" in computed:
         return jsonify({"reply": affordability_reply(computed, recommendations), "month": report["month"],
                         "model": "rules"})
+    if "priority_question" in computed:
+        return jsonify({"reply": priorities_reply(recommendations), "month": report["month"], "model": "rules"})
     if "whatif_cut" in computed:
         return jsonify({"reply": whatif_reply(computed), "month": report["month"], "model": "rules"})
     system_prompt = build_coach_system_prompt(report, recommendations, computed)

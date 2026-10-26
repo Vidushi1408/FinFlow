@@ -9,6 +9,8 @@ import re
 import numpy as np
 import pandas as pd
 
+from etl.transform.clean import merchant_key
+
 MERCHANT_ID_MAX_LEN = 50  # dim_merchant / fact_transactions.merchant_id are VARCHAR(50)
 
 FIELDS = ("date", "description", "amount", "type", "debit", "credit", "balance")
@@ -157,10 +159,15 @@ def apply_mapping(df, mapping):
         description = description.where(~blank_description, "NO DESCRIPTION")
         issues.append({"level": "info", "message": f"{int(blank_description.sum())} row(s) had no description and were labelled NO DESCRIPTION."})
     out["description"] = description
-    out["merchant_id"] = description.str.slice(0, MERCHANT_ID_MAX_LEN)
-    truncated = int((description.str.len() > MERCHANT_ID_MAX_LEN).sum())
+    # merchant_id is the merchant's identity, not the raw narration: the payee for a UPI payment, the text
+    # minus reference numbers otherwise. A raw narration carries a unique reference per payment, which
+    # made every Swiggy order a different "merchant" and broke recurring-payment and unusual-merchant
+    # detection. The full narration stays in `description`.
+    merchant = description.map(merchant_key)
+    out["merchant_id"] = merchant.str.slice(0, MERCHANT_ID_MAX_LEN)
+    truncated = int((merchant.str.len() > MERCHANT_ID_MAX_LEN).sum())
     if truncated:
-        issues.append({"level": "info", "message": f"{truncated} description(s) longer than {MERCHANT_ID_MAX_LEN} characters were shortened."})
+        issues.append({"level": "info", "message": f"{truncated} merchant name(s) longer than {MERCHANT_ID_MAX_LEN} characters were shortened."})
 
     if has_split:
         debit = _to_number(df[mapping["debit"]]).abs() if mapping.get("debit") else pd.Series(np.nan, index=df.index)

@@ -4,6 +4,7 @@ from sqlalchemy import text
 from datetime import date
 import pandas as pd
 from etl.transform.clean import summarize_recurring_series
+from webapp.services.recurring import subscriptions_only
 from ml.fraud_model import predict_fraud
 from webapp.db_utils import user_account_ids
 
@@ -143,7 +144,7 @@ def dashboard_summary():
 
     tx_df = pd.read_sql(
         text("""
-            SELECT transaction_id, account_id, merchant_id, amount, transaction_ts as date
+            SELECT transaction_id, account_id, merchant_id, category_id, amount, transaction_ts as date
             FROM fact_transactions
             WHERE account_id = ANY(:aids) AND transaction_type = 'DEBIT'
         """), g.db.connection(), params={"aids": account_ids}
@@ -152,7 +153,7 @@ def dashboard_summary():
     subscriptions_due_soon = []
     if not tx_df.empty:
         tx_df['date'] = pd.to_datetime(tx_df['date'])
-        recurring = summarize_recurring_series(tx_df)
+        recurring = subscriptions_only(summarize_recurring_series(tx_df), tx_df)
         annual_sub_cost = float(recurring['annualized_cost'].sum()) if not recurring.empty else 0.0
         if not recurring.empty:
             upcoming = recurring[

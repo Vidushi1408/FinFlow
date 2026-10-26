@@ -366,7 +366,7 @@ def test_report_chat_includes_recommendations_in_model_context(make_client, monk
 
     captured = {}
     monkeypatch.setattr(reports_module, "_call_ollama", lambda m: captured.setdefault("m", m) and "ok")
-    make_client("alice").post("/api/v1/reports/chat", json={"message": "What should I do?"})
+    make_client("alice").post("/api/v1/reports/chat", json={"message": "Tell me about my spending patterns."})
     assert "Recommendations (JSON, ranked)" in captured["m"][0]["content"]
 
 

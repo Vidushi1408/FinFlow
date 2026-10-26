@@ -103,13 +103,22 @@ def _opening_info(std_df, plan, provided):
     return {"value": None, "source": "unknown", "editable": True}
 
 
+def legacy_idempotency_keys(df):
+    """The transaction ids this file's rows would have had before merchant_id became the cleaned merchant
+    name (it used to be the raw narration cut to 50 characters). Rows imported back then keep those ids, so
+    re-uploading an overlapping statement must still recognise them rather than add duplicates."""
+    return compute_idempotency_key(df.assign(merchant_id=df['description'].astype(str).str.slice(0, 50)))
+
+
 def _already_imported(std_df, account_id):
     """(importable_rows, ids_already_in_the_database) for this file against the user's imported account."""
     importable = std_df[std_df['date'] <= pd.Timestamp.now()].copy()
     importable['account_id'] = account_id
     keys = compute_idempotency_key(importable)
-    existing = statement_account.existing_transaction_ids(g.db, keys)
-    return len(importable), existing
+    legacy = legacy_idempotency_keys(importable)
+    found = statement_account.existing_transaction_ids(g.db, list(keys) + list(legacy))
+    already_rows = int((keys.isin(found) | legacy.isin(found)).sum())
+    return len(importable), already_rows
 
 
 @upload_bp.route('/upload/preview', methods=['POST'])
@@ -155,7 +164,7 @@ def preview_upload():
 
     plan = _account_plan(std_df)
     opening = _opening_info(std_df, plan, provided_opening)
-    importable, already = (len(std_df), set())
+    importable, already = (len(std_df), 0)
     if plan["account_id"]:
         importable, already = _already_imported(std_df, plan["account_id"])
 
@@ -167,7 +176,7 @@ def preview_upload():
         "preview": [
             {
                 "date": row['date'].strftime('%Y-%m-%d'),
-                "description": row['merchant_id'],
+                "description": row['description'][:80],
                 "amount": round(float(row['amount']), 2),
                 "transaction_type": row['transaction_type'],
                 "category_id": row['category_id'],
@@ -183,8 +192,8 @@ def preview_upload():
             "total_credit": round(float(credits['amount'].sum()), 2),
             "date_from": std_df['date'].min().strftime('%Y-%m-%d'),
             "date_to": std_df['date'].max().strftime('%Y-%m-%d'),
-            "already_imported": len(already),
-            "new_rows": importable - len(already),
+            "already_imported": already,
+            "new_rows": importable - already,
         },
         "account": {"is_new": plan["is_new"]},
         "opening_balance": opening,
@@ -217,6 +226,7 @@ def upload_transactions():
 
     df['transaction_id'] = [str(uuid.uuid4()) for _ in range(len(df))]
     df['account_id'] = account_id
+    df['legacy_transaction_id'] = legacy_idempotency_keys(df)
 
     try:
         df_clean = process_pipeline(df)
@@ -226,8 +236,9 @@ def upload_transactions():
 
     # De-duplicate against what's already imported: re-uploading a statement (or
     # one that overlaps an earlier one) adds only the rows that are actually new.
-    already = statement_account.existing_transaction_ids(g.db, df_clean['transaction_id'])
-    new_rows = df_clean[~df_clean['transaction_id'].isin(already)].copy()
+    already = statement_account.existing_transaction_ids(
+        g.db, list(df_clean['transaction_id']) + list(df_clean['legacy_transaction_id']))
+    new_rows = df_clean[~(df_clean['transaction_id'].isin(already) | df_clean['legacy_transaction_id'].isin(already))].copy()
 
     new_rows = _apply_user_rules(new_rows, current_user.id) if len(new_rows) else new_rows
 
