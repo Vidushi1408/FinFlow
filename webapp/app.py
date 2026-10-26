@@ -14,6 +14,7 @@ from logging_config import logger, new_request_id, Timer
 from webapp.database import SessionLocal
 from webapp.auth import login_manager
 from webapp.extensions import limiter
+from webapp import metrics
 
 from webapp.routes.auth import auth_bp
 from webapp.routes.spending import spending_bp
@@ -176,6 +177,17 @@ def csp_report():
     return "", 204
 
 
+@app.route("/metrics")
+def metrics_endpoint():
+    """Prometheus scrape target. Off (404) unless METRICS_TOKEN is set; then requires
+    `Authorization: Bearer <token>` so request volumes aren't public."""
+    token = os.environ.get("METRICS_TOKEN", "").strip()
+    supplied = request.headers.get("Authorization", "")
+    if not token or not secrets.compare_digest(supplied, f"Bearer {token}"):
+        return ("Not found", 404)
+    return app.response_class(metrics.render(), mimetype="text/plain; version=0.0.4")
+
+
 @app.context_processor
 def inject_csp_nonce():
     return {"csp_nonce": _csp_nonce()}
@@ -188,6 +200,8 @@ def log_request(response):
     if timer is not None:
         timer.__exit__(None, None, None)
         duration_ms = timer.elapsed_ms
+    metrics.record(request.method, response.status_code, duration_ms)
+    response.headers["X-Request-ID"] = getattr(g, "request_id", None) or new_request_id()
     logger.info(
         f"{request.method} {request.path} {response.status_code} {duration_ms}ms",
         extra={

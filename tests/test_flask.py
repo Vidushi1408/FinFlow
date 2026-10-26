@@ -1096,3 +1096,19 @@ def test_csp_enforced_and_report_only_headers(client):
 
 def test_csp_report_endpoint_accepts_reports_without_csrf(client):
     assert client.post("/csp-report", data='{"csp-report":{}}', content_type="application/csp-report").status_code == 204
+
+
+def test_metrics_endpoint_is_off_without_a_token_and_gated_with_one(client, monkeypatch):
+    monkeypatch.delenv("METRICS_TOKEN", raising=False)
+    assert client.get("/metrics").status_code == 404
+
+    monkeypatch.setenv("METRICS_TOKEN", "s3cret")
+    assert client.get("/metrics").status_code == 404
+    assert client.get("/metrics", headers={"Authorization": "Bearer wrong"}).status_code == 404
+    client.get("/health")
+    ok = client.get("/metrics", headers={"Authorization": "Bearer s3cret"})
+    assert ok.status_code == 200 and "finflow_http_requests_total" in ok.get_data(as_text=True)
+
+
+def test_every_response_carries_a_request_id(client):
+    assert client.get("/login").headers.get("X-Request-ID")

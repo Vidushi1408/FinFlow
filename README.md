@@ -358,6 +358,10 @@ python scripts/stream_data.py --once                       # single batch, then 
   a real `redis://` connection — CI runs a real `redis` service for this
   (like the Postgres one), and the same tests skip cleanly on a machine
   without Redis running locally.
+- **Observability.** Every response carries an `X-Request-ID` (the same id appears in the structured logs).
+  `GET /metrics` serves Prometheus-format request counts and latency sums, per gunicorn worker, and is
+  **off (404) unless `METRICS_TOKEN` is set**, then requires `Authorization: Bearer <token>`. There is no
+  error-tracking integration (e.g. Sentry) yet.
 - **Automated scanning.** CI's `security` job runs `bandit` (static analysis
   for common Python security issues) against the application code and
   `pip-audit` (known CVEs) against `requirements.txt`, and blocks
