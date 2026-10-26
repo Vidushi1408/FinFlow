@@ -60,6 +60,10 @@ function renderInfo(data) {
         </ul>
     ` : '<div class="state-placeholder">Not trained yet.</div>';
 
+    if (data.your_alert_feedback) {
+        document.getElementById('fraudInfo').innerHTML += `<hr><p class="mb-0"><strong>Your feedback:</strong> ${escapeHtml(data.your_alert_feedback.plain_language)}</p>`;
+    }
+
     const cf = data.cashflow_model;
     document.getElementById('cashflowInfo').innerHTML = cf ? `
         <p><strong>${cf.algorithm}</strong></p>

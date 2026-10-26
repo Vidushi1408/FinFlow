@@ -1,5 +1,6 @@
-from flask import Blueprint, jsonify
-from flask_login import login_required
+from flask import Blueprint, jsonify, g
+from flask_login import login_required, current_user
+from sqlalchemy import text
 from ml.fraud_model import load_fraud_metadata
 from ml.cashflow_model import load_cashflow_metadata
 
@@ -10,6 +11,25 @@ STRATEGY_LABELS = {
     'same_period_last_month': 'Naive baseline: same period last month',
     'trailing_30d_avg': 'Naive baseline: trailing 30-day average'
 }
+
+
+def _your_alert_feedback():
+    """How the signed-in user judged their own alerts. This is the only real-world check on the model:
+    the headline metrics come from synthetic data with known fraud, this comes from you."""
+    rows = {r[0]: r[1] for r in g.db.execute(
+        text("SELECT feedback, COUNT(*) FROM fraud_feedback WHERE user_id = :uid GROUP BY feedback"),
+        {"uid": current_user.id}
+    ).fetchall()}
+    mine, suspicious = int(rows.get('CONFIRMED_ME', 0)), int(rows.get('SUSPICIOUS', 0))
+    reviewed = mine + suspicious
+    return {
+        "reviewed": reviewed, "confirmed_me": mine, "reported_suspicious": suspicious,
+        "plain_language": (
+            f"You've reviewed {reviewed} alert(s): {mine} were you, {suspicious} you reported as suspicious. "
+            "Merchants you confirm stop being re-flagged unless a charge is much larger than usual."
+            if reviewed else "You haven't reviewed any alerts yet. Marking them \"This was me\" teaches your alert list."
+        ),
+    }
 
 
 @model_info_bp.route('/info', methods=['GET'])
@@ -65,4 +85,5 @@ def get_model_info():
     except FileNotFoundError:
         pass
 
+    info["your_alert_feedback"] = _your_alert_feedback()
     return jsonify(info)

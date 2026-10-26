@@ -395,3 +395,15 @@ def test_reply_quoting_only_known_figures_is_passed_through(make_client, monkeyp
     monkeypatch.setattr(reports_module, "_call_ollama", lambda m: "Looks fine. You asked about ₹1,234.")
     body = make_client("alice").post("/api/v1/reports/chat", json={"message": "Is ₹1,234 a lot?"}).get_json()
     assert body["reply"] == "Looks fine. You asked about ₹1,234."
+
+
+def test_model_info_includes_only_this_users_alert_feedback(make_client):
+    client = make_client("alice")
+    before = client.get("/api/v1/models/info").get_json()["your_alert_feedback"]
+    tx = client.get("/api/v1/transactions?type=DEBIT&page_size=1").get_json()["transactions"][0]["transaction_id"]
+    client.post("/api/v1/fraud/feedback", json={"transaction_id": tx, "feedback": "SUSPICIOUS"})
+    after = client.get("/api/v1/models/info").get_json()["your_alert_feedback"]
+    assert after["reported_suspicious"] == before["reported_suspicious"] + 1
+    assert after["reviewed"] == after["confirmed_me"] + after["reported_suspicious"]
+    bob = make_client("bob").get("/api/v1/models/info").get_json()["your_alert_feedback"]
+    assert bob["reported_suspicious"] == 0
