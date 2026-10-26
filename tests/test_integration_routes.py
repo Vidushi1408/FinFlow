@@ -449,3 +449,23 @@ def test_unknown_payees_lists_generic_upi_spend_and_one_apply_fixes_the_payee(ma
     assert query("SELECT COUNT(*) FROM fact_transactions WHERE merchant_id = 'RIYA SHARMA' AND category_id = 'UPI'")[0][0] == 0
     assert "RIYA SHARMA" not in [p["merchant_id"] for p in alice.get("/api/v1/transactions/unknown-payees").get_json()["payees"]]
     assert "RIYA SHARMA" not in [p["merchant_id"] for p in make_client("bob").get("/api/v1/transactions/unknown-payees").get_json()["payees"]]
+
+
+def test_transaction_pdf_export_and_rupee_text(make_client, tmp_path):
+    import shutil
+    import subprocess
+
+    alice = make_client("alice")
+    response = alice.get("/api/v1/transactions/export.pdf?type=DEBIT")
+    assert response.status_code == 200 and response.mimetype == "application/pdf"
+    assert response.data.startswith(b"%PDF")
+    assert alice.get("/api/v1/transactions/export.pdf?type=BOGUS").status_code == 400
+
+    monthly = alice.get(f"/api/v1/reports/monthly/export.pdf?month={THIS_MONTH}")
+    assert monthly.status_code == 200
+    if shutil.which("pdftotext"):  # the base PDF fonts can't draw the rupee sign, so amounts must say "Rs."
+        for name, data in (("ledger", response.data), ("monthly", monthly.data)):
+            path = tmp_path / f"{name}.pdf"
+            path.write_bytes(data)
+            text_out = subprocess.run(["pdftotext", str(path), "-"], capture_output=True, text=True, timeout=30).stdout
+            assert "Rs." in text_out and "₹" not in text_out, name

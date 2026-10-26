@@ -13,6 +13,7 @@ from sqlalchemy import text
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from webapp.extensions import limiter
+from webapp.services.pdf_utils import pdf_inr
 from webapp.services.advisor import (
     PRIORITY_ORDER, affordability_reply, whatif_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
     grounded_fallback, unverified_figures,
@@ -301,17 +302,17 @@ def export_pdf():
     sub_count = report['subscription_count']
     alert_count = report['alert_count']
     summary_text = (
-        f"You spent ₹{report['total_spent']:,.2f} this month ({change_text}). "
+        f"You spent {pdf_inr(report['total_spent'])} this month ({change_text}). "
         + (f"Your biggest category was {report['biggest_category']['category_id']} "
-           f"at ₹{report['biggest_category']['amount']:,.2f}. " if report['biggest_category'] else "")
+           f"at {pdf_inr(report['biggest_category']['amount'])}. " if report['biggest_category'] else "")
         + f"You have {sub_count} active subscription{'' if sub_count == 1 else 's'} costing "
-        f"₹{report['subscription_annual_cost']:,.2f}/year, and {alert_count} alert{'' if alert_count == 1 else 's'} this month."
+        f"{pdf_inr(report['subscription_annual_cost'])}/year, and {alert_count} alert{'' if alert_count == 1 else 's'} this month."
     )
     elements.append(Paragraph(summary_text, styles['BodyText']))
     elements.append(Spacer(1, 16))
 
     if report['categories']:
-        data = [["Category", "Amount"]] + [[c['category_id'], f"₹{c['amount']:,.2f}"] for c in report['categories']]
+        data = [["Category", "Amount"]] + [[c['category_id'], f"{pdf_inr(c['amount'])}"] for c in report['categories']]
         table = Table(data, hAlign='LEFT')
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
@@ -324,7 +325,7 @@ def export_pdf():
     if report['goals']:
         elements.append(Paragraph("Savings Goals", styles['Heading2']))
         goal_data = [["Goal", "Target", "Deadline", "Days left"]] + [
-            [g['name'], f"₹{g['target_amount']:,.2f}", g['deadline'], str(g['days_left'])] for g in report['goals']
+            [g['name'], f"{pdf_inr(g['target_amount'])}", g['deadline'], str(g['days_left'])] for g in report['goals']
         ]
         goal_table = Table(goal_data, hAlign='LEFT')
         goal_table.setStyle(TableStyle([

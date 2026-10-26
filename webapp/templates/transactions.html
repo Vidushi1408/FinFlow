@@ -25,7 +25,8 @@
     </div>
 
     <div id="unknownPayees" class="alert alert-info py-2 d-none"></div>
-    <div class="mb-3"><a id="exportLink" class="btn btn-sm btn-outline-secondary" href="/api/v1/transactions/export.csv" data-click="prepareExport">Export filtered ledger (CSV)</a></div>
+    <div class="mb-3"><a id="exportLink" class="btn btn-sm btn-outline-secondary" href="/api/v1/transactions/export.csv" data-click="prepareExport">Export filtered ledger (CSV)</a>
+        <a id="exportPdfLink" class="btn btn-sm btn-outline-secondary" href="/api/v1/transactions/export.pdf" data-click="prepareExport">Export as PDF</a></div>
     <div id="uploadPanel" class="mb-3"></div>
     <div id="txNotice" class="alert alert-success py-2 d-none"></div>
 
@@ -103,7 +104,7 @@ function buildQuery(page, forExport = false) {
     return params.toString();
 }
 
-function prepareExport(el) { el.href = '/api/v1/transactions/export.csv?' + buildQuery(1, true); }
+function prepareExport(el) { el.href = el.href.split('?')[0] + '?' + buildQuery(1, true); }
 function retryTransactions() { loadTransactions(1); }
 
 async function loadTransactions(page) {

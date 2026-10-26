@@ -7,6 +7,7 @@ from sqlalchemy import text
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from etl.transform.clean import merchant_key
+from webapp.services.pdf_utils import pdf_inr
 
 transactions_bp = Blueprint('transactions', __name__, url_prefix='/api/v1/transactions')
 
@@ -234,4 +235,67 @@ def export_transactions_csv():
     return Response(
         output.getvalue(), mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=finflow-transactions.csv'}
+    )
+
+
+PDF_MAX_ROWS = 5000
+
+
+def _pdf_text(value, limit=38):
+    """Plain, base-font-safe text for a PDF cell: characters the built-in fonts can't draw become '?'
+    instead of black squares, and long merchant names are cut."""
+    text_value = "" if value is None else str(value)
+    return text_value.encode("latin-1", "replace").decode("latin-1")[:limit]
+
+
+@transactions_bp.route('/export.pdf', methods=['GET'])
+@login_required
+def export_transactions_pdf():
+    """The filtered ledger as a PDF (newest first, capped at PDF_MAX_ROWS rows; use the CSV for more)."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    account_ids = user_account_ids(current_user.id)
+    rows, total = [], 0
+    if account_ids:
+        where_clause, params, err = _build_filters(account_ids)
+        if err:
+            return err
+        total = g.db.execute(text(f"SELECT COUNT(*) FROM fact_transactions f WHERE {where_clause}"), params).scalar()  # nosec B608 - see _build_filters
+        params["limit"] = PDF_MAX_ROWS
+        rows = g.db.execute(text(f"""
+            SELECT f.transaction_ts, f.merchant_id, f.category_id, f.transaction_type, f.amount
+            FROM fact_transactions f WHERE {where_clause}
+            ORDER BY f.transaction_ts DESC LIMIT :limit
+        """), params).fetchall()  # nosec B608 - see _build_filters
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, title="FinFlow transactions")
+    styles = getSampleStyleSheet()
+    shown = len(rows)
+    note = f"{shown} of {total} transactions" + (f" (capped at {PDF_MAX_ROWS}; export the CSV for the rest)" if total > shown else "")
+    elements = [Paragraph("FinFlow Transactions", styles['Title']), Paragraph(_pdf_text(note, 120), styles['BodyText']), Spacer(1, 10)]
+    if rows:
+        data = [["Date", "Merchant", "Category", "Type", "Amount"]] + [
+            [str(r[0])[:10], _pdf_text(r[1]), _pdf_text(r[2], 18), r[3], pdf_inr(r[4])] for r in rows
+        ]
+        table = Table(data, repeatRows=1, hAlign='LEFT', colWidths=[62, 190, 90, 42, 80])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (-1, 0), (-1, -1), 'RIGHT'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f3f4f6')]),
+            ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+        ]))
+        elements.append(table)
+    else:
+        elements.append(Paragraph("No transactions match these filters.", styles['BodyText']))
+    doc.build(elements)
+
+    return Response(
+        buffer.getvalue(), mimetype='application/pdf',
+        headers={'Content-Disposition': 'attachment; filename=finflow-transactions.pdf'}
     )
