@@ -8,7 +8,8 @@ from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from webapp.forms import SignupForm, LoginForm, DemoLoadForm
+from webapp.forms import SignupForm, LoginForm, DemoLoadForm, ForgotPasswordForm, ResetPasswordForm
+from webapp.services.password_reset import make_reset_token, read_reset_token, send_reset_email, token_matches_password
 from webapp.auth import User
 from webapp.extensions import limiter
 from webapp.services.demo_seed import seed_demo_data_for_user
@@ -65,8 +66,15 @@ def signup():
     return render_template('auth/signup.html', form=form)
 
 
+def _login_email_key():
+    """Rate-limit failed logins per target account too, so a botnet rotating IPs can't grind one password."""
+    return "login-email:" + (request.form.get('email') or '').lower().strip()
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 @limiter.limit('10 per minute')
+@limiter.limit('5 per 15 minutes', key_func=_login_email_key, methods=['POST'],
+               deduct_when=lambda response: response.status_code != 302)
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
@@ -132,3 +140,51 @@ def onboarding_complete():
     )
     g.db.commit()
     return redirect(url_for('index'))
+
+
+@auth_bp.route('/forgot-password', methods=['GET', 'POST'])
+@limiter.limit('5 per 15 minutes', methods=['POST'])
+def forgot_password():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    form = ForgotPasswordForm()
+    if form.validate_on_submit():
+        row = g.db.execute(
+            text("SELECT user_id, password_hash FROM dim_user WHERE email = :email"),
+            {"email": form.email.data.lower().strip()}
+        ).fetchone()
+        if row:
+            token = make_reset_token(row[0], row[1])
+            send_reset_email(form.email.data.lower().strip(), url_for('auth.reset_password', token=token, _external=True))
+        # Same answer whether or not the address exists, so this can't be used to find who has an account.
+        flash('If that email has a FinFlow account, a reset link is on its way. It expires in 60 minutes.', 'success')
+        return redirect(url_for('auth.login'))
+
+    return render_template('auth/forgot_password.html', form=form)
+
+
+@auth_bp.route('/reset-password/<token>', methods=['GET', 'POST'])
+@limiter.limit('10 per 15 minutes', methods=['POST'])
+def reset_password(token):
+    parsed = read_reset_token(token)
+    row = None
+    if parsed:
+        row = g.db.execute(
+            text("SELECT user_id, password_hash FROM dim_user WHERE user_id = :uid"), {"uid": parsed[0]}
+        ).fetchone()
+    if not row or not token_matches_password(parsed[1], row[1]):
+        flash('That reset link is invalid or has expired. Request a new one.', 'error')
+        return redirect(url_for('auth.forgot_password'))
+
+    form = ResetPasswordForm()
+    if form.validate_on_submit():
+        g.db.execute(
+            text("UPDATE dim_user SET password_hash = :h WHERE user_id = :uid"),
+            {"h": generate_password_hash(form.password.data), "uid": row[0]}
+        )
+        g.db.commit()
+        flash('Password updated. Log in with your new password.', 'success')
+        return redirect(url_for('auth.login'))
+
+    return render_template('auth/reset_password.html', form=form)

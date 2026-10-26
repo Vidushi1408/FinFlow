@@ -23,7 +23,11 @@ Flask web app with server-rendered pages and a JSON API.
 
 ## Feature list
 
-- Email/password auth (Flask-Login), CSRF on every form, rate-limited login
+- Email/password auth (Flask-Login), CSRF on every form, rate-limited login (per IP and per target
+  account, so rotating IPs can't grind one password), and self-service password reset: signed,
+  60-minute, single-use links (no token table; the link dies when the password changes), with the same
+  response whether or not the email exists. Mail goes via `SMTP_*` settings; without them the link is
+  logged for local development. There is no email *verification* at signup yet
 - Onboarding: upload a bank CSV (with a column-mapping preview) or load realistic demo data for a persona.
   All of your imported statements go into one account; re-uploading a file, or an overlapping one, only adds the rows that are new
 - Dashboard: financial health score (0–100, broken into savings rate / budget

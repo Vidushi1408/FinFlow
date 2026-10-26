@@ -22,6 +22,20 @@ class LoginForm(FlaskForm):
     submit = SubmitField('Log in')
 
 
+class ForgotPasswordForm(FlaskForm):
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    submit = SubmitField('Send reset link')
+
+
+class ResetPasswordForm(FlaskForm):
+    password = PasswordField('New password', validators=[DataRequired(), Length(min=8, message='Password must be at least 8 characters.')])
+    confirm_password = PasswordField(
+        'Confirm new password',
+        validators=[DataRequired(), EqualTo('password', message='Passwords must match.')]
+    )
+    submit = SubmitField('Set new password')
+
+
 class DemoLoadForm(FlaskForm):
     persona = SelectField('Persona', choices=[
         ('student', 'Student on a stipend'),
