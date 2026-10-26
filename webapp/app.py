@@ -26,6 +26,7 @@ from webapp.routes.dashboard import dashboard_bp
 from webapp.routes.transactions import transactions_bp
 from webapp.routes.budgets import budgets_bp
 from webapp.routes.goals import goals_bp
+from webapp.routes.loans import loans_bp
 from webapp.routes.settings import settings_bp
 from webapp.routes.reports import reports_bp
 from webapp.routes.model_info import model_info_bp
@@ -100,6 +101,7 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(transactions_bp)
 app.register_blueprint(budgets_bp)
 app.register_blueprint(goals_bp)
+app.register_blueprint(loans_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(reports_bp)
 app.register_blueprint(model_info_bp)

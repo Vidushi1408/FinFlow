@@ -84,3 +84,16 @@ def test_check_reply_fixes_dollars_and_flags_invented_figures():
     flagged = check_reply("You spent ₹99,999.", ctx, "q")
     assert "double-check" in flagged
     assert "double-check" not in check_reply("You spent ₹12,000.", ctx, "q")
+
+
+def test_high_emi_burden_and_costly_loan_are_flagged():
+    loans = [{"name": "Card EMI", "balance": 80000.0, "rate": 24.0, "emi": 12000.0},
+             {"name": "Bike", "balance": 90000.0, "rate": 9.0, "emi": 9000.0}]
+    recs = build_recommendations(profile(loans=loans, avg_monthly_income=50000.0))
+    assert "emi-burden-high" in ids(recs) and "prepay-Card EMI" in ids(recs)
+    assert "put-surplus-to-work" not in ids(recs)  # don't nudge toward investing while 24% debt exists
+
+
+def test_cheap_loan_with_moderate_emi_raises_no_loan_advice():
+    loans = [{"name": "Home", "balance": 900000.0, "rate": 8.5, "emi": 8000.0}]
+    assert not [i for i in ids(build_recommendations(profile(loans=loans))) if i.startswith(("emi", "prepay"))]

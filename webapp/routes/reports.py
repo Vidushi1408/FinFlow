@@ -4,7 +4,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import Blueprint, jsonify, request, g, Response
 from flask_login import login_required, current_user
@@ -14,7 +14,7 @@ from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from webapp.extensions import limiter
 from webapp.services.advisor import (
-    build_financial_profile, build_recommendations, check_reply, computed_facts_for,
+    PRIORITY_ORDER, build_financial_profile, build_recommendations, check_reply, computed_facts_for,
 )
 from etl.transform.clean import summarize_recurring_series
 from ml.fraud_model import predict_fraud
@@ -64,6 +64,27 @@ def _call_ollama(messages):
     if not message:
         raise OllamaError("The local AI assistant returned an empty response.")
     return message
+
+
+ADVICE_DISMISS_DAYS = 30
+
+
+def _recommendations_for_user(profile):
+    """Rule-based recommendations minus ones the user dismissed in the last 30 days; ones they marked
+    useful sort ahead of others at the same priority. Always returns at least one item."""
+    recs = build_recommendations(profile)
+    rows = g.db.execute(
+        text("""SELECT advice_id, feedback, updated_at FROM advice_feedback WHERE user_id = :uid"""),
+        {"uid": current_user.id}
+    ).fetchall()
+    cutoff = datetime.now() - timedelta(days=ADVICE_DISMISS_DAYS)
+    dismissed = {r[0] for r in rows if r[1] == 'DISMISSED' and r[2] and r[2] >= cutoff}
+    useful = {r[0] for r in rows if r[1] == 'USEFUL'}
+    kept = [dict(r, marked_useful=r["id"] in useful) for r in recs if r["id"] not in dismissed]
+    kept.sort(key=lambda r: (PRIORITY_ORDER[r["priority"]], not r["marked_useful"], -(r["monthly_impact"] or 0)))
+    return kept or [{"id": "all-clear", "priority": "low", "title": "Nothing new right now",
+                     "detail": "You've dismissed the current suggestions. New ones appear as your numbers change.",
+                     "monthly_impact": None, "marked_useful": False}]
 
 
 def _parse_month(month_str):
@@ -331,7 +352,7 @@ def report_chat():
 
     account_ids = user_account_ids(current_user.id)
     profile = build_financial_profile(g.db, current_user.id, account_ids)
-    recommendations = build_recommendations(profile)
+    recommendations = _recommendations_for_user(profile)
     computed = computed_facts_for(user_message, profile)
 
     system_prompt = (
@@ -375,7 +396,30 @@ def advice():
     account_ids = user_account_ids(current_user.id)
     profile = build_financial_profile(g.db, current_user.id, account_ids)
     return jsonify({
-        "recommendations": build_recommendations(profile),
+        "recommendations": _recommendations_for_user(profile),
         "disclaimer": "General budgeting guidance based on your own transactions, not personalised "
                       "investment or tax advice.",
     })
+
+
+@reports_bp.route('/advice/feedback', methods=['POST'])
+@login_required
+def advice_feedback():
+    """Record that a suggestion was useful or should be hidden for 30 days."""
+    req = request.get_json(silent=True) or {}
+    advice_id = (req.get('advice_id') or '').strip()
+    feedback = req.get('feedback')
+    if feedback not in ('USEFUL', 'DISMISSED'):
+        return error_response("feedback must be USEFUL or DISMISSED", 400)
+    if not advice_id or len(advice_id) > 200:
+        return error_response("advice_id is required", 400)
+
+    g.db.execute(
+        text("""
+            INSERT INTO advice_feedback (user_id, advice_id, feedback) VALUES (:uid, :aid, :fb)
+            ON CONFLICT (user_id, advice_id) DO UPDATE SET feedback = EXCLUDED.feedback, updated_at = CURRENT_TIMESTAMP
+        """),
+        {"uid": current_user.id, "aid": advice_id, "fb": feedback}
+    )
+    g.db.commit()
+    return jsonify({"advice_id": advice_id, "feedback": feedback})

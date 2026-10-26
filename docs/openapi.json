@@ -1764,6 +1764,119 @@
           }
         }
       }
+    },
+    "/reports/advice/feedback": {
+      "post": {
+        "summary": "Mark a money-coach suggestion useful, or hide it for 30 days",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "advice_id",
+                  "feedback"
+                ],
+                "properties": {
+                  "advice_id": {
+                    "type": "string"
+                  },
+                  "feedback": {
+                    "type": "string",
+                    "enum": [
+                      "USEFUL",
+                      "DISMISSED"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved"
+          },
+          "400": {
+            "description": "Invalid feedback or advice_id"
+          }
+        }
+      }
+    },
+    "/loans": {
+      "get": {
+        "summary": "List your loans (highest interest first) and total monthly EMI",
+        "responses": {
+          "200": {
+            "description": "loans[] and total_monthly_emi"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a loan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "outstanding_balance",
+                  "interest_rate_pct",
+                  "monthly_emi"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "outstanding_balance": {
+                    "type": "number"
+                  },
+                  "interest_rate_pct": {
+                    "type": "number"
+                  },
+                  "monthly_emi": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid field"
+          }
+        }
+      }
+    },
+    "/loans/{loan_id}": {
+      "delete": {
+        "summary": "Delete a loan",
+        "parameters": [
+          {
+            "name": "loan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
     }
   }
 }

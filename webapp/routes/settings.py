@@ -78,6 +78,8 @@ def _delete_all_user_data(user_id):
     g.db.execute(text("DELETE FROM category_rule WHERE user_id = :uid"), {"uid": user_id})
     g.db.execute(text("DELETE FROM user_category_budget WHERE user_id = :uid"), {"uid": user_id})
     g.db.execute(text("DELETE FROM goal WHERE user_id = :uid"), {"uid": user_id})
+    g.db.execute(text("DELETE FROM loan WHERE user_id = :uid"), {"uid": user_id})
+    g.db.execute(text("DELETE FROM advice_feedback WHERE user_id = :uid"), {"uid": user_id})
 
     if account_ids:
         g.db.execute(text("DELETE FROM fact_investments WHERE account_id = ANY(:aids)"), {"aids": account_ids})

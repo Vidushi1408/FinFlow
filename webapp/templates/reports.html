@@ -136,12 +136,22 @@ async function loadAdvice() {
         box.innerHTML = data.recommendations.map(r => `<div class="border-bottom py-2">
             <span class="badge bg-${PRIORITY_BADGE[r.priority] || 'secondary'} me-2">${escapeHtml(r.priority)}</span>
             <strong>${escapeHtml(r.title)}</strong>
-            <div style="color: var(--text-secondary);">${escapeHtml(r.detail)}</div></div>`).join('');
+            <div style="color: var(--text-secondary);">${escapeHtml(r.detail)}</div>
+            ${r.id === 'all-clear' || r.id === 'need-history' ? '' : `<div class="mt-1">
+                <button class="btn btn-sm btn-outline-success py-0" data-aid="${escapeHtml(r.id)}" data-fb="USEFUL" onclick="adviceFeedback(this)">${r.marked_useful ? '&#10003; ' : ''}Useful</button>
+                <button class="btn btn-sm btn-outline-secondary py-0" data-aid="${escapeHtml(r.id)}" data-fb="DISMISSED" onclick="adviceFeedback(this)">Hide for 30 days</button></div>`}</div>`).join('');
     } catch (e) {
         box.innerHTML = '<div class="state-placeholder">Suggestions are unavailable right now.</div>';
     }
 }
 loadAdvice();
+
+async function adviceFeedback(btn) {
+    await apiFetch('/api/v1/reports/advice/feedback', {
+        method: 'POST', body: JSON.stringify({ advice_id: btn.dataset.aid, feedback: btn.dataset.fb })
+    });
+    loadAdvice();
+}
 
 function askSuggested(btn) {
     document.getElementById('chatInput').value = btn.innerText;

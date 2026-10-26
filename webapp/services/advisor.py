@@ -19,6 +19,10 @@ SUBSCRIPTION_SHARE_LIMIT = 0.10
 CATEGORY_SPIKE_RATIO = 1.3
 CATEGORY_SPIKE_MIN_RUPEES = 500
 
+EMI_BURDEN_HIGH = 0.40
+EMI_BURDEN_WATCH = 0.30
+HIGH_INTEREST_RATE_PCT = 12.0
+
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
@@ -37,7 +41,7 @@ def build_financial_profile(db, user_id, account_ids, today=None):
         "avg_monthly_income": 0.0, "avg_monthly_spend": 0.0, "savings_rate": None,
         "balance": 0.0, "buffer_months": None, "months_of_history": 0,
         "category_this_month": {}, "category_avg": {}, "budgets": [],
-        "subscriptions": [], "subscription_annual_cost": 0.0, "goals": [],
+        "subscriptions": [], "subscription_annual_cost": 0.0, "goals": [], "loans": [],
     }
     if not account_ids:
         return profile
@@ -111,6 +115,13 @@ def build_financial_profile(db, user_id, account_ids, today=None):
             })
         profile["subscriptions"].sort(key=lambda s: s["annual_cost"], reverse=True)
         profile["subscription_annual_cost"] = sum(s["annual_cost"] for s in profile["subscriptions"])
+
+    for name, balance, rate, emi in db.execute(
+        text("SELECT name, outstanding_balance, interest_rate_pct, monthly_emi FROM loan WHERE user_id = :uid"),
+        {"uid": user_id}
+    ).fetchall():
+        profile["loans"].append({"name": name, "balance": float(balance), "rate": float(rate), "emi": float(emi)})
+    profile["loans"].sort(key=lambda loan: loan["rate"], reverse=True)
 
     savings_per_month = profile["avg_monthly_income"] - profile["avg_monthly_spend"]
     for name, target, deadline in db.execute(
@@ -196,6 +207,31 @@ def build_recommendations(p):
                 f"It costs about {_inr(top['annual_cost'])}/year. Worth confirming you still use it.",
                 top["annual_cost"] / 12)
 
+    loans = p.get("loans") or []
+    if loans:
+        total_emi = sum(loan["emi"] for loan in loans)
+        burden = total_emi / income if income > 0 else None
+        if burden is not None and burden > EMI_BURDEN_HIGH:
+            add("emi-burden-high", "high", "EMIs are eating your income",
+                f"Your EMIs total {_inr(total_emi)}/month, {burden * 100:.0f}% of income; lenders and planners "
+                f"treat above {EMI_BURDEN_HIGH * 100:.0f}% as stretched. Avoid new debt, and see below for which loan to clear first.",
+                total_emi - income * EMI_BURDEN_HIGH)
+        elif burden is not None and burden > EMI_BURDEN_WATCH:
+            add("emi-burden-watch", "medium", "EMIs are a heavy share of income",
+                f"{_inr(total_emi)}/month is {burden * 100:.0f}% of income. Keep it from rising further.")
+        costly = loans[0]  # sorted by rate, highest first
+        surplus = income - spend
+        if costly["rate"] >= HIGH_INTEREST_RATE_PCT and (bm is None or bm >= 1):
+            extra = max(min(surplus * 0.5, costly["balance"]), 0)
+            tail = (f" Putting about {_inr(extra)}/month of your surplus toward it would cut the interest you pay."
+                    if extra > 0 else " Check for a cheaper refinance or a small lump-sum prepayment.")
+            add(f"prepay-{costly['name']}", "high" if costly["rate"] >= 18 else "medium",
+                f"Clear '{costly['name']}' first",
+                f"It charges {costly['rate']:.1f}% on {_inr(costly['balance'])}, your most expensive debt. "
+                "Clearing the highest-rate loan first (the 'avalanche' order) saves the most interest, and "
+                f"it usually beats earning less than that rate elsewhere.{tail} Check for prepayment charges first.",
+                extra or None)
+
     for goal in p["goals"]:
         if not goal["on_track"]:
             gap = goal["required_monthly"] - (income - spend)
@@ -204,7 +240,8 @@ def build_recommendations(p):
                 f"{goal['deadline']}; you're short by about {_inr(max(gap, 0))}/month. Options: push the deadline, "
                 "lower the target, or free up the gap from the categories above.", max(gap, 0))
 
-    if rate is not None and rate >= HEALTHY_SAVINGS_RATE and (bm is None or bm >= BUFFER_TARGET_MONTHS):
+    costly_debt = any(loan["rate"] >= HIGH_INTEREST_RATE_PCT for loan in loans)
+    if rate is not None and rate >= HEALTHY_SAVINGS_RATE and (bm is None or bm >= BUFFER_TARGET_MONTHS) and not costly_debt:
         surplus = income - spend
         add("put-surplus-to-work", "low", "You have room to put surplus to work",
             f"You keep about {rate * 100:.0f}% of income ({_inr(surplus)}/month) and your buffer is covered. "

@@ -428,3 +428,37 @@ def test_confirmed_merchant_is_not_reflagged_but_a_much_bigger_charge_is(make_cl
     remaining = [a for a in after["alerts"] if a["merchant_id"] == merchant]
     assert all(a["amount"] > ceiling * fraud_module.TRUSTED_MERCHANT_AMOUNT_TOLERANCE for a in remaining)
     assert after["suppressed_trusted_merchant_count"] >= len(same_merchant) - len(remaining) > 0
+
+
+def test_loans_crud_validation_and_isolation(make_client):
+    alice, bob = make_client("alice"), make_client("bob")
+    assert alice.post("/api/v1/loans", json={"name": "Bike", "outstanding_balance": 90000, "interest_rate_pct": 9, "monthly_emi": 4500}).status_code == 201
+    assert alice.post("/api/v1/loans", json={"name": "", "outstanding_balance": 1, "interest_rate_pct": 1, "monthly_emi": 1}).status_code == 400
+    assert alice.post("/api/v1/loans", json={"name": "X", "outstanding_balance": -5, "interest_rate_pct": 1, "monthly_emi": 1}).status_code == 400
+    assert alice.post("/api/v1/loans", json={"name": "X", "outstanding_balance": 5, "interest_rate_pct": 400, "monthly_emi": 1}).status_code == 400
+
+    mine = alice.get("/api/v1/loans").get_json()
+    assert mine["total_monthly_emi"] >= 4500 and any(loan["name"] == "Bike" for loan in mine["loans"])
+    assert bob.get("/api/v1/loans").get_json()["loans"] == []
+
+    loan_id = next(loan["loan_id"] for loan in mine["loans"] if loan["name"] == "Bike")
+    assert bob.delete(f"/api/v1/loans/{loan_id}").status_code == 404
+    assert alice.delete("/api/v1/loans/not-a-uuid").status_code == 404
+    assert alice.delete(f"/api/v1/loans/{loan_id}").status_code == 200
+
+
+def test_advice_feedback_hides_dismissed_and_marks_useful(make_client):
+    client = make_client("alice")
+    recs = client.get("/api/v1/reports/advice").get_json()["recommendations"]
+    target = recs[0]["id"]
+    assert client.post("/api/v1/reports/advice/feedback", json={"advice_id": target, "feedback": "BOGUS"}).status_code == 400
+    assert client.post("/api/v1/reports/advice/feedback", json={"advice_id": target, "feedback": "DISMISSED"}).status_code == 200
+    after = client.get("/api/v1/reports/advice").get_json()["recommendations"]
+    assert target not in [r["id"] for r in after]
+    # feedback is per user
+    bob_rows = query("SELECT COUNT(*) FROM advice_feedback f JOIN dim_user u ON u.user_id = f.user_id WHERE u.name = 'Bob'")
+    assert bob_rows[0][0] == 0
+    useful_id = after[0]["id"]
+    assert client.post("/api/v1/reports/advice/feedback", json={"advice_id": useful_id, "feedback": "USEFUL"}).status_code == 200
+    again = {r["id"]: r for r in client.get("/api/v1/reports/advice").get_json()["recommendations"]}
+    assert again[useful_id]["marked_useful"] is True
