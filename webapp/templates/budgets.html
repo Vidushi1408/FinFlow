@@ -7,7 +7,7 @@
 </header>
 
 <div id="loadingState" class="state-placeholder">Loading budgets&hellip;</div>
-<div id="errorState" class="state-placeholder d-none">Couldn't load budgets. <button class="btn btn-sm btn-outline-secondary" onclick="loadBudgets()">Retry</button></div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load budgets. <button class="btn btn-sm btn-outline-secondary" data-click="loadBudgets">Retry</button></div>
 
 <div id="budgetGrid" class="row g-3 d-none"></div>
 
@@ -45,12 +45,14 @@ function renderBudgets(budgets) {
                 <p class="metric-sub mb-3">Projected month-end: ${formatINR(b.projected_month_end)}</p>
                 <div class="d-flex gap-2">
                     <input type="number" min="0" class="form-control form-control-sm" placeholder="Set limit" value="${limit || ''}" id="limit-${escapeHtml(b.category_id)}">
-                    <button class="btn btn-sm btn-outline-primary" data-cat="${escapeHtml(b.category_id)}" onclick="saveBudget(this.dataset.cat)">Save</button>
+                    <button class="btn btn-sm btn-outline-primary" data-cat="${escapeHtml(b.category_id)}" data-click="saveBudgetClick">Save</button>
                 </div>
             </div>
         </div>`;
     }).join('');
 }
+
+function saveBudgetClick(el) { saveBudget(el.dataset.cat); }
 
 async function saveBudget(categoryId) {
     const input = document.getElementById(`limit-${categoryId}`);

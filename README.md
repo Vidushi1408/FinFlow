@@ -339,12 +339,14 @@ python scripts/stream_data.py --once                       # single batch, then 
   caller's own accounts, output escaping in the UI, same-site-only redirects
   after login, `HttpOnly`/`SameSite` (and `Secure` in production) cookies, and
   `nosniff`/`X-Frame-Options`/`Referrer-Policy` headers.
-- **Content-Security-Policy.** Enforced: `object-src 'none'; base-uri 'self'; frame-ancestors 'none';
-  form-action 'self'`. The strict script policy (`script-src 'self' 'nonce-…'` plus the jsDelivr CDN) ships in
-  **report-only** mode: inline `<script>` tags already carry the per-request nonce, but about 26 inline
-  event handlers (`onclick=…`) must move into static JS before `script-src` can be enforced without
-  breaking pages. Violations are logged by `/csp-report`, which shows what is left to fix.
-- **What isn't:** `script-src` is not yet enforced (see above).
+- **Content-Security-Policy, enforced.** `script-src 'self' 'nonce-…' https://cdn.jsdelivr.net` (no
+  `'unsafe-inline'` scripts), plus `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`,
+  `form-action 'self'`, `connect-src 'self'`. Inline `<script>` tags carry a per-request nonce and UI buttons use
+  delegated `data-click`/`data-submit` handlers (`static/js/app.js`) instead of inline `onclick=`; a test fails if
+  an inline handler is reintroduced, and a browser test walks every page and demands a clean console. Violations
+  are logged via `/csp-report`. Exceptions: styles still allow inline (`style="..."` is used throughout), and
+  the bundled Swagger UI page (`/api/docs`) only gets the base directives because it ships its own inline script.
+- **What isn't:** no email verification at signup, no error tracking.
 - Internal errors are logged server-side; clients only see generic messages.
 - **Rate-limit storage.** Set `REDIS_URL` to share login-rate-limit counters
   across workers/containers via Redis; without it, Flask-Limiter falls back to
@@ -499,7 +501,7 @@ shown either way, so the forecast never claims false precision.
   and the Model Info page reports how you judged your alerts, but the labels don't feed training (an
   unsupervised Isolation Forest has no natural place for them; a supervised stage on top would)
 - Email verification at signup, and an error-tracking integration (e.g. Sentry)
-- Enforce the `script-src` CSP: move the ~26 inline event handlers into static JS (see Security notes)
+- Tighten `style-src` (drop inline styles) and self-host Chart.js/Bootstrap so `script-src` needs no CDN
 - Real, anonymised bank statements added to `tests/fixtures/bank_statements/` whenever an import fails;
   the current fixtures are reconstructions of the layouts, not real exports
 - A larger local model (or a hosted one, if you accept data leaving the machine) for richer coaching;

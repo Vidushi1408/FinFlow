@@ -12,7 +12,7 @@
 </div>
 
 <div id="loadingState" class="state-placeholder">Looking for recurring charges&hellip;</div>
-<div id="errorState" class="state-placeholder d-none">Couldn't load subscriptions. <button class="btn btn-sm btn-outline-secondary" onclick="loadSubscriptions()">Retry</button></div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load subscriptions. <button class="btn btn-sm btn-outline-secondary" data-click="loadSubscriptions">Retry</button></div>
 <div id="emptyState" class="state-placeholder d-none">No recurring charges detected yet &mdash; need at least 3 regular payments to a merchant.</div>
 
 <div class="table-responsive d-none" id="tableWrap">
@@ -59,12 +59,15 @@ function renderSubs(subs) {
             <td>${escapeHtml(s.next_expected_date)}</td>
             <td>${formatINR(s.annualized_cost)}</td>
             <td>
-                <button class="btn btn-sm btn-outline-warning" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" onclick="override(this.dataset.acc, this.dataset.merchant, 'CANCEL_CANDIDATE')">Cancel candidate</button>
-                <button class="btn btn-sm btn-outline-secondary" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" onclick="override(this.dataset.acc, this.dataset.merchant, 'NOT_SUBSCRIPTION')">Not a subscription</button>
+                <button class="btn btn-sm btn-outline-warning" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" data-click="overrideCancel">Cancel candidate</button>
+                <button class="btn btn-sm btn-outline-secondary" data-acc="${escapeHtml(s.account_id)}" data-merchant="${escapeHtml(s.merchant_id)}" data-click="overrideNotSub">Not a subscription</button>
             </td>
         </tr>
     `).join('');
 }
+
+function overrideCancel(el) { override(el.dataset.acc, el.dataset.merchant, 'CANCEL_CANDIDATE'); }
+function overrideNotSub(el) { override(el.dataset.acc, el.dataset.merchant, 'NOT_SUBSCRIPTION'); }
 
 async function override(accountId, merchantId, status) {
     const res = await apiFetch('/api/v1/insights/subscriptions/override', {

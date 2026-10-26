@@ -25,12 +25,12 @@
     </div>
 
     <div id="unknownPayees" class="alert alert-info py-2 d-none"></div>
-    <div class="mb-3"><a id="exportLink" class="btn btn-sm btn-outline-secondary" href="/api/v1/transactions/export.csv" onclick="this.href='/api/v1/transactions/export.csv?' + buildQuery(1, true)">Export filtered ledger (CSV)</a></div>
+    <div class="mb-3"><a id="exportLink" class="btn btn-sm btn-outline-secondary" href="/api/v1/transactions/export.csv" data-click="prepareExport">Export filtered ledger (CSV)</a></div>
     <div id="uploadPanel" class="mb-3"></div>
     <div id="txNotice" class="alert alert-success py-2 d-none"></div>
 
     <div id="loadingState" class="state-placeholder">Loading transactions&hellip;</div>
-    <div id="errorState" class="state-placeholder d-none">Couldn't load transactions. <button class="btn btn-sm btn-outline-secondary" onclick="loadTransactions(1)">Retry</button></div>
+    <div id="errorState" class="state-placeholder d-none">Couldn't load transactions. <button class="btn btn-sm btn-outline-secondary" data-click="retryTransactions">Retry</button></div>
     <div id="emptyState" class="state-placeholder d-none">No transactions match these filters yet.</div>
 
     <div class="table-responsive d-none" id="tableWrap">
@@ -102,6 +102,9 @@ function buildQuery(page, forExport = false) {
     if (to) params.set('date_to', to);
     return params.toString();
 }
+
+function prepareExport(el) { el.href = '/api/v1/transactions/export.csv?' + buildQuery(1, true); }
+function retryTransactions() { loadTransactions(1); }
 
 async function loadTransactions(page) {
     currentPage = page;

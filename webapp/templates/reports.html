@@ -9,14 +9,14 @@
 <div class="card mb-3">
     <div class="d-flex align-items-center gap-2 flex-wrap">
         <input type="month" id="monthPicker" class="form-control" style="max-width: 200px;">
-        <button class="btn btn-outline-secondary" onclick="loadReport()">View</button>
+        <button class="btn btn-outline-secondary" data-click="loadReport">View</button>
         <a id="exportCsv" class="btn btn-outline-secondary" href="#">Export CSV</a>
         <a id="exportPdf" class="btn btn-outline-secondary" href="#">Export PDF</a>
     </div>
 </div>
 
 <div id="loadingState" class="state-placeholder">Building your report&hellip;</div>
-<div id="errorState" class="state-placeholder d-none">Couldn't load the report. <button class="btn btn-sm btn-outline-secondary" onclick="loadReport()">Retry</button></div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load the report. <button class="btn btn-sm btn-outline-secondary" data-click="loadReport">Retry</button></div>
 
 <div id="reportContent" class="d-none">
     <div class="card">
@@ -52,17 +52,17 @@
             and the suggestions above, nothing else.
         </p>
         <div class="d-flex flex-wrap gap-2 mb-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">What should I do first with my money?</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">Where can I cut spending?</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">Am I saving enough?</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">What if I cut dining by 20%?</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">Can I afford a ₹20,000 purchase next month?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-click="askSuggested">What should I do first with my money?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-click="askSuggested">Where can I cut spending?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-click="askSuggested">Am I saving enough?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-click="askSuggested">What if I cut dining by 20%?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-click="askSuggested">Can I afford a ₹20,000 purchase next month?</button>
         </div>
 
         <div id="chatLog" style="max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;"></div>
         <div id="chatError" class="alert alert-danger py-2 d-none"></div>
 
-        <form id="chatForm" class="d-flex gap-2" onsubmit="sendChatMessage(event)">
+        <form id="chatForm" class="d-flex gap-2" data-submit="sendChatMessage">
             <input type="text" id="chatInput" class="form-control" placeholder="e.g. Why did my spending go up this month?" maxlength="2000" autocomplete="off">
             <button type="submit" id="chatSendBtn" class="btn btn-primary">Send</button>
         </form>
@@ -139,8 +139,8 @@ async function loadAdvice() {
             <strong>${escapeHtml(r.title)}</strong>
             <div style="color: var(--text-secondary);">${escapeHtml(r.detail)}</div>
             ${r.id === 'all-clear' || r.id === 'need-history' ? '' : `<div class="mt-1">
-                <button class="btn btn-sm btn-outline-success py-0" data-aid="${escapeHtml(r.id)}" data-fb="USEFUL" onclick="adviceFeedback(this)">${r.marked_useful ? '&#10003; ' : ''}Useful</button>
-                <button class="btn btn-sm btn-outline-secondary py-0" data-aid="${escapeHtml(r.id)}" data-fb="DISMISSED" onclick="adviceFeedback(this)">Hide for 30 days</button></div>`}</div>`).join('');
+                <button class="btn btn-sm btn-outline-success py-0" data-aid="${escapeHtml(r.id)}" data-fb="USEFUL" data-click="adviceFeedback">${r.marked_useful ? '&#10003; ' : ''}Useful</button>
+                <button class="btn btn-sm btn-outline-secondary py-0" data-aid="${escapeHtml(r.id)}" data-fb="DISMISSED" data-click="adviceFeedback">Hide for 30 days</button></div>`}</div>`).join('');
     } catch (e) {
         box.innerHTML = '<div class="state-placeholder">Suggestions are unavailable right now.</div>';
     }
@@ -174,7 +174,7 @@ function appendChatBubble(role, text) {
     return bubble;
 }
 
-async function sendChatMessage(event) {
+async function sendChatMessage(form, event) {
     event.preventDefault();
     const input = document.getElementById('chatInput');
     const message = input.value.trim();

@@ -95,3 +95,16 @@ function confirmTyped({ title, message, phrase, confirmLabel }) {
         modal.show();
     });
 }
+
+
+// Delegated UI actions. Templates use data-click="fnName" / data-submit="fnName" instead of inline
+// inline event-handler attributes, so a Content-Security-Policy without 'unsafe-inline' scripts works.
+// The named function is looked up on window and called as fn(element, event).
+function runDelegated(attr, event) {
+    const el = event.target.closest('[data-' + attr + ']');
+    if (!el) return;
+    const fn = window[el.dataset[attr]];
+    if (typeof fn === 'function') fn(el, event);
+}
+document.addEventListener('click', function (e) { runDelegated('click', e); });
+document.addEventListener('submit', function (e) { runDelegated('submit', e); });

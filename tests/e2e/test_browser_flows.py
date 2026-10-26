@@ -108,3 +108,30 @@ def test_password_reset_page_is_reachable_from_login(page, base_url):
     page.click("text=Forgot your password?")
     page.wait_for_url("**/forgot-password")
     sync_api.expect(page.locator("form")).to_be_visible()
+
+
+def test_every_page_runs_under_the_enforced_csp_and_buttons_still_work(page, base_url):
+    """The CSP is enforced (no inline handlers, nonce'd scripts). Any blocked script or handler shows up
+    as a console error, so walk every page, click the delegated buttons, and demand a clean console."""
+    violations = []
+    page.on("console", lambda m: violations.append(m.text) if "Content Security Policy" in m.text or "Refused to" in m.text else None)
+    page.on("pageerror", lambda e: violations.append(str(e)))
+
+    _sign_up_and_load_demo(page, base_url)
+    for path in ("/", "/transactions", "/budgets", "/subscriptions", "/alerts", "/goals", "/whatif",
+                 "/reports", "/about-models", "/settings"):
+        page.goto(f"{base_url}{path}")
+        page.wait_for_load_state("networkidle")
+
+    # Delegated handlers actually fire: add a loan on the Goals page, then delete it.
+    page.goto(f"{base_url}/goals")
+    page.fill("#loanName", "CSP loan")
+    page.fill("#loanBalance", "50000")
+    page.fill("#loanRate", "14")
+    page.fill("#loanEmi", "2500")
+    page.click("text=Add loan")
+    sync_api.expect(page.locator("#loanList")).to_contain_text("CSP loan", timeout=10000)
+    page.click("#loanList button[data-click=deleteLoanClick]")
+    sync_api.expect(page.locator("#loanList")).not_to_contain_text("CSP loan", timeout=10000)
+
+    assert violations == [], violations

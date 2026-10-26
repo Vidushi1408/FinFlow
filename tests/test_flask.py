@@ -1086,12 +1086,25 @@ def test_production_with_one_worker_still_requires_a_key():
         load_secret_key({"FLASK_ENV": "production", "GUNICORN_WORKERS": "1", "SECRET_KEY": ""})
 
 
-def test_csp_enforced_and_report_only_headers(client):
-    response = client.get("/login")
-    assert "object-src 'none'" in response.headers["Content-Security-Policy"]
-    report_only = response.headers["Content-Security-Policy-Report-Only"]
-    nonce = report_only.split("'nonce-")[1].split("'")[0]
-    assert f'nonce="{nonce}"' in response.get_data(as_text=True) or "<script nonce" not in response.get_data(as_text=True)
+def test_full_csp_is_enforced_with_a_nonce_matching_the_inline_scripts(client):
+    csp = client.get("/login").headers["Content-Security-Policy"]
+    assert "script-src 'self' 'nonce-" in csp and "'unsafe-inline'" not in csp.split("style-src")[0]
+    assert "object-src 'none'" in csp and "frame-ancestors 'none'" in csp
+    assert "Content-Security-Policy-Report-Only" not in client.get("/login").headers
+
+
+def test_swagger_docs_page_gets_only_the_base_csp(client):
+    csp = client.get("/api/docs/").headers["Content-Security-Policy"]
+    assert "script-src" not in csp and "object-src 'none'" in csp
+
+
+def test_no_template_or_static_script_uses_inline_event_handlers():
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "webapp"
+    offenders = [str(p.relative_to(root)) for p in list(root.glob("templates/**/*.html")) + list(root.glob("static/js/*.js"))
+                 if re.search(r"\bon(click|submit|change|input|load|error|keyup|keydown|focus|blur)\s*=", p.read_text())]
+    assert offenders == []
 
 
 def test_csp_report_endpoint_accepts_reports_without_csrf(client):

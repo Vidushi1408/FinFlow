@@ -133,9 +133,10 @@ def teardown_request(exception):
             db.rollback()
         db.close()
 
-# Enforced: policies the pages already satisfy, so they close real holes (plugins, <base> hijacking,
-# framing, form posts to other origins) without breaking anything.
-CSP_ENFORCED = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+# Content-Security-Policy, enforced. Inline <script> tags carry a per-request nonce and UI actions are wired
+# through delegated data-click/data-submit handlers in static/js/app.js, so no 'unsafe-inline' scripts.
+# Styles still allow inline (style="..." attributes are used throughout the templates).
+CSP_BASE = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 
 
 def _csp_nonce():
@@ -145,15 +146,12 @@ def _csp_nonce():
     return g.csp_nonce
 
 
-def _csp_report_only(nonce):
-    """The strict script policy, in report-only mode. Inline <script> tags carry this nonce, but about
-    26 inline event handlers (onclick=...) still need moving into static JS before script-src can be
-    enforced; violations are logged via /csp-report so that work can be measured, not guessed."""
+def _csp_full(nonce):
     return (
         f"default-src 'self'; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
-        "report-uri /csp-report"
+        f"{CSP_BASE}; report-uri /csp-report"
     )
 
 
@@ -162,8 +160,12 @@ def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    response.headers.setdefault("Content-Security-Policy", CSP_ENFORCED)
-    response.headers.setdefault("Content-Security-Policy-Report-Only", _csp_report_only(_csp_nonce()))
+    # The bundled Swagger UI page (/api/docs) ships its own inline bootstrap script, so it gets only the
+    # base directives; every FinFlow page gets the full policy.
+    if request.path.startswith("/api/docs"):
+        response.headers.setdefault("Content-Security-Policy", CSP_BASE)
+    else:
+        response.headers.setdefault("Content-Security-Policy", _csp_full(_csp_nonce()))
     return response
 
 

@@ -16,7 +16,7 @@
 </div>
 
 <div id="loadingState" class="state-placeholder">Checking for anything wrong&hellip;</div>
-<div id="errorState" class="state-placeholder d-none">Couldn't load alerts. <button class="btn btn-sm btn-outline-secondary" onclick="loadAlerts()">Retry</button></div>
+<div id="errorState" class="state-placeholder d-none">Couldn't load alerts. <button class="btn btn-sm btn-outline-secondary" data-click="loadAlerts">Retry</button></div>
 <div id="emptyState" class="state-placeholder d-none">Nothing looks wrong right now.</div>
 
 <div id="alertsList"></div>
@@ -59,14 +59,17 @@ function renderAlerts(alerts) {
                 </div>
                 <div class="d-flex flex-column gap-2 align-items-end justify-content-center">
                     ${a.feedback ? `<span class="badge text-bg-secondary">${a.feedback === 'CONFIRMED_ME' ? 'Marked as you' : 'Reported suspicious'}</span>` : `
-                    <button class="btn btn-sm btn-outline-success" data-tid="${escapeHtml(a.transaction_id)}" onclick="giveFeedback(this.dataset.tid, 'CONFIRMED_ME')">This was me</button>
-                    <button class="btn btn-sm btn-outline-danger" data-tid="${escapeHtml(a.transaction_id)}" onclick="giveFeedback(this.dataset.tid, 'SUSPICIOUS')">Report as suspicious</button>
+                    <button class="btn btn-sm btn-outline-success" data-tid="${escapeHtml(a.transaction_id)}" data-click="feedbackMe">This was me</button>
+                    <button class="btn btn-sm btn-outline-danger" data-tid="${escapeHtml(a.transaction_id)}" data-click="feedbackSuspicious">Report as suspicious</button>
                     `}
                 </div>
             </div>
         </div>
     `).join('');
 }
+
+function feedbackMe(el) { giveFeedback(el.dataset.tid, 'CONFIRMED_ME'); }
+function feedbackSuspicious(el) { giveFeedback(el.dataset.tid, 'SUSPICIOUS'); }
 
 async function giveFeedback(transactionId, feedback) {
     const res = await apiFetch('/api/v1/fraud/feedback', {
