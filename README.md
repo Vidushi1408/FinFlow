@@ -359,7 +359,9 @@ python scripts/stream_data.py --once                       # single batch, then 
 - **Backups and data deletion.** See `docs/DATA_POLICY.md` for the full
   picture, but the short version: `scripts/backup_db.py` backs up the
   database (`pg_dump`, compressed, rotated after 30 days by default) and
-  isn't scheduled automatically — run it yourself via cron/systemd or
+  can run on a schedule with the opt-in compose service
+  (`docker compose --profile backup up -d backup`, daily by default; `BACKUP_INTERVAL_HOURS` /
+  `BACKUP_KEEP_DAYS` to tune) or by hand via
   `docker compose run --rm webapp python scripts/backup_db.py`. "Delete all
   my data" is a real, immediate hard delete from the live database, but data
   from before a deletion may still exist in a backup taken before it, until

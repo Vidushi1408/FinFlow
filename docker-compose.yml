@@ -93,5 +93,32 @@ services:
     volumes:
       - .:/app
 
+  # Opt-in scheduled backups: `docker compose --profile backup up -d backup`. One compressed pg_dump
+  # per BACKUP_INTERVAL_HOURS (default 24) into ./backups, rotated after BACKUP_KEEP_DAYS (default 30).
+  # Restoring stays manual on purpose; see docs/DATA_POLICY.md.
+  backup:
+    build: .
+    profiles: ["backup"]
+    command: >
+      sh -c "while true; do python scripts/backup_db.py --dir /app/backups --keep-days $${BACKUP_KEEP_DAYS:-30};
+      sleep $$(( $${BACKUP_INTERVAL_HOURS:-24} * 3600 )); done"
+    environment:
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=finflow
+      - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-30}
+      - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-24}
+      - PYTHONPATH=/app
+    depends_on:
+      db:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+      - ./backups:/app/backups
+
 volumes:
   pgdata:

@@ -113,10 +113,11 @@ attempting it.
 Being direct about what a real production deployment would still need,
 beyond what's in this repo:
 
-- **No automated backup schedule.** `scripts/backup_db.py` is run manually or
-  via a cron entry / systemd timer you set up yourself
-  (`0 3 * * * cd /path/to/finflow && python scripts/backup_db.py`) — there's
-  no scheduler service in `docker-compose.yml`.
+- **Scheduled backups are opt-in.** `docker compose --profile backup up -d backup` runs
+  `scripts/backup_db.py` every `BACKUP_INTERVAL_HOURS` (default 24) into `./backups`, rotating after
+  `BACKUP_KEEP_DAYS`. It doesn't start with a plain `docker compose up`, and outside Docker you still
+  need your own cron entry / systemd timer. Nothing monitors it, so a failed backup only shows in
+  that container's logs.
 - **No offsite/replicated backups.** Backups land on the same disk the
   database runs on by default (`--dir` can point elsewhere, including a
   mounted network volume, but nothing pushes them to object storage
