@@ -8,7 +8,7 @@ from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from etl.transform.clean import merchant_key
 from webapp.services.category_suggestions import closest_category, known_categories
-from webapp.services.pdf_utils import pdf_inr
+from webapp.services.pdf_utils import FONT, FONT_BOLD, pdf_inr, pdf_safe, pdf_styles
 
 transactions_bp = Blueprint('transactions', __name__, url_prefix='/api/v1/transactions')
 
@@ -248,20 +248,12 @@ def export_transactions_csv():
 PDF_MAX_ROWS = 5000
 
 
-def _pdf_text(value, limit=38):
-    """Plain, base-font-safe text for a PDF cell: characters the built-in fonts can't draw become '?'
-    instead of black squares, and long merchant names are cut."""
-    text_value = "" if value is None else str(value)
-    return text_value.encode("latin-1", "replace").decode("latin-1")[:limit]
-
-
 @transactions_bp.route('/export.pdf', methods=['GET'])
 @login_required
 def export_transactions_pdf():
     """The filtered ledger as a PDF (newest first, capped at PDF_MAX_ROWS rows; use the CSV for more)."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     account_ids = user_account_ids(current_user.id)
@@ -280,18 +272,20 @@ def export_transactions_pdf():
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, title="FinFlow transactions")
-    styles = getSampleStyleSheet()
+    styles = pdf_styles()
     shown = len(rows)
     note = f"{shown} of {total} transactions" + (f" (capped at {PDF_MAX_ROWS}; export the CSV for the rest)" if total > shown else "")
-    elements = [Paragraph("FinFlow Transactions", styles['Title']), Paragraph(_pdf_text(note, 120), styles['BodyText']), Spacer(1, 10)]
+    elements = [Paragraph("FinFlow Transactions", styles['Title']), Paragraph(pdf_safe(note, 120), styles['BodyText']), Spacer(1, 10)]
     if rows:
         data = [["Date", "Merchant", "Category", "Type", "Amount"]] + [
-            [str(r[0])[:10], _pdf_text(r[1]), _pdf_text(r[2], 18), r[3], pdf_inr(r[4])] for r in rows
+            [str(r[0])[:10], pdf_safe(r[1], 38), pdf_safe(r[2], 18), r[3], pdf_inr(r[4])] for r in rows
         ]
         table = Table(data, repeatRows=1, hAlign='LEFT', colWidths=[62, 190, 90, 42, 80])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), FONT),
+            ('FONTNAME', (0, 0), (-1, 0), FONT_BOLD),
             ('FONTSIZE', (0, 0), (-1, -1), 8),
             ('ALIGN', (-1, 0), (-1, -1), 'RIGHT'),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f3f4f6')]),

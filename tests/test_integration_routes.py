@@ -463,12 +463,12 @@ def test_transaction_pdf_export_and_rupee_text(make_client, tmp_path):
 
     monthly = alice.get(f"/api/v1/reports/monthly/export.pdf?month={THIS_MONTH}")
     assert monthly.status_code == 200
-    if shutil.which("pdftotext"):  # the base PDF fonts can't draw the rupee sign, so amounts must say "Rs."
+    if shutil.which("pdftotext"):  # the PDFs embed a font with the rupee glyph, so amounts print as ₹ (not a black box)
         for name, data in (("ledger", response.data), ("monthly", monthly.data)):
             path = tmp_path / f"{name}.pdf"
             path.write_bytes(data)
             text_out = subprocess.run(["pdftotext", str(path), "-"], capture_output=True, text=True, timeout=30).stdout
-            assert "Rs." in text_out and "₹" not in text_out, name
+            assert "₹" in text_out and "Rs." not in text_out, name
 
 
 def test_alert_cutoff_personalises_with_enough_history_and_can_be_switched_off(make_client, monkeypatch):

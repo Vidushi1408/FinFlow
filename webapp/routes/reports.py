@@ -13,7 +13,7 @@ from sqlalchemy import text
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from webapp.extensions import limiter
-from webapp.services.pdf_utils import pdf_inr
+from webapp.services.pdf_utils import FONT, FONT_BOLD, pdf_inr, pdf_styles
 from webapp.services.advisor import (
     PRIORITY_ORDER, affordability_reply, cut_spending_reply, plain_text, priorities_reply, saving_reply, whatif_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
     grounded_fallback, unverified_figures,
@@ -276,7 +276,6 @@ def export_pdf():
     from reportlab.lib.pagesizes import letter
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet
 
     month_str = request.args.get('month', datetime.now().strftime('%Y-%m'))
     year, month = _parse_month(month_str)
@@ -292,7 +291,7 @@ def export_pdf():
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
+    styles = pdf_styles()
     elements = [Paragraph(f"FinFlow Monthly Report &mdash; {report['month']}", styles['Title']), Spacer(1, 12)]
 
     change_text = (
@@ -318,6 +317,8 @@ def export_pdf():
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), FONT),
+            ('FONTNAME', (0, 0), (-1, 0), FONT_BOLD),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ]))
         elements.append(table)
@@ -332,6 +333,8 @@ def export_pdf():
         goal_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#8b5cf6')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), FONT),
+            ('FONTNAME', (0, 0), (-1, 0), FONT_BOLD),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ]))
         elements.append(goal_table)

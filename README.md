@@ -28,7 +28,7 @@ Flask web app with server-rendered pages and a JSON API.
   60-minute, single-use links (no token table; the link dies when the password changes), with the same
   response whether or not the email exists. Mail goes via `SMTP_*` settings; without them the link is
   logged for local development. Signup sends a signed confirmation link (7-day, tied to the address); until it's used a banner offers a
-  resend. Verification is soft: it doesn't block login or any feature, and accounts that existed before it
+  resend. Verification is deliberately soft: it doesn't block login or any feature (gating "delete my data" would block a privacy right when mail isn't configured, and nothing else here needs it), and accounts that existed before it
   (including the demo users) count as verified. Existing databases need `python database/migrate.py` (migration 0006)
 - Onboarding: upload a bank CSV (with a column-mapping preview) or load realistic demo data for a persona.
   All of your imported statements go into one account; re-uploading a file, or an overlapping one, only adds the rows that are new
@@ -368,8 +368,8 @@ python scripts/stream_data.py --once                       # single batch, then 
   `form-action 'self'`, `connect-src 'self'`. Inline `<script>` tags carry a per-request nonce and UI buttons use
   delegated `data-click`/`data-submit` handlers (`static/js/app.js`) instead of inline `onclick=`; a test fails if
   an inline handler is reintroduced, and a browser test walks every page and demands a clean console. Violations
-  are logged via `/csp-report`. Exceptions: styles still allow inline (`style="..."` is used throughout), and
-  the bundled Swagger UI page (`/api/docs`) only gets the base directives because it ships its own inline script.
+  are logged via `/csp-report`. Styles come from static CSS only (no `style="..."` attributes, a test enforces it) and the Inter font is
+  self-hosted, so the policy names no third-party host. The one exception is the bundled Swagger UI page (`/api/docs`) only gets the base directives because it ships its own inline script.
 - **What isn't:** no error tracking, and email verification is informational rather than a gate.
 - Internal errors are logged server-side; clients only see generic messages.
 - **Rate-limit storage.** Set `REDIS_URL` to share login-rate-limit counters
@@ -512,8 +512,8 @@ shown either way, so the forecast never claims false precision.
   values, but it's still a heuristic, not a calibrated economic model — a
   freelancer persona can occasionally end a year with a negative balance,
   which is intentionally left in as a realistic (not universal) outcome.
-- **PDF amounts read `Rs.`, not ₹.** The PDF exports use ReportLab's built-in fonts, which can't draw the rupee
-  sign (it printed as a black square before this was fixed). The ledger PDF is capped at 5,000 rows; the CSV isn't.
+- **Ledger PDF is capped at 5,000 rows** (the CSV isn't). Both PDFs embed DejaVu Sans so ₹ prints correctly;
+  characters that font lacks (e.g. Devanagari merchant names) print as `?`.
 - **Balances of imported statements need a balance column or your input.**
   If the CSV has a running-balance column, the opening balance is worked out
   from it (and only trusted if it reconciles with the amounts). Otherwise the
@@ -531,8 +531,6 @@ shown either way, so the forecast never claims false precision.
 - Per-user model fine-tuning once a user has enough of their own history (the alert *cutoff* is already
   personalised; the model is not)
 - Feed feedback into the model itself. Today it drives a per-user re-ranker, not training (below)
-- Make email verification gate sensitive actions (it is informational today)
-- Tighten `style-src` (drop inline `style=` attributes) and self-host the Inter web font (still loaded from Google Fonts)
 - Real, anonymised bank statements added to `tests/fixtures/bank_statements/` whenever an import fails;
   the current fixtures are reconstructions of the layouts, not real exports
 - A larger local model (or a hosted one, if you accept data leaving the machine) for richer coaching;
