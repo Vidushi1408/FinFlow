@@ -104,12 +104,23 @@ def _to_number(series):
     return series.map(convert)
 
 
+_YEAR_FIRST = r"^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}"
+
+
 def _parse_dates(series):
-    """Indian statements are day-first (05/06/2025 is 5 June); pick whichever
-    reading parses more rows, preferring day-first on a tie."""
-    dayfirst = pd.to_datetime(series, errors="coerce", dayfirst=True, format="mixed")
-    monthfirst = pd.to_datetime(series, errors="coerce", dayfirst=False, format="mixed")
-    return monthfirst if monthfirst.notna().sum() > dayfirst.notna().sum() else dayfirst
+    """Indian statements are day-first (05/06/2025 is 5 June); pick whichever reading parses more
+    rows, preferring day-first on a tie. Year-first values (2025-09-01) are unambiguous and are always
+    read as year-month-day: forcing day-first on them would turn 1 September into 9 January."""
+    year_first = series.astype(str).str.match(_YEAR_FIRST)
+    out = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
+    if year_first.any():
+        out[year_first] = pd.to_datetime(series[year_first], errors="coerce", dayfirst=False, format="mixed")
+    rest = series[~year_first]
+    if not rest.empty:
+        dayfirst = pd.to_datetime(rest, errors="coerce", dayfirst=True, format="mixed")
+        monthfirst = pd.to_datetime(rest, errors="coerce", dayfirst=False, format="mixed")
+        out[~year_first] = monthfirst if monthfirst.notna().sum() > dayfirst.notna().sum() else dayfirst
+    return out
 
 
 def _type_from_label(label):
