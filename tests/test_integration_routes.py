@@ -494,3 +494,39 @@ def test_alert_cutoff_personalises_with_enough_history_and_can_be_switched_off(m
     assert personal["threshold_source"] == "personal" and personal["threshold"] > 0.5
     assert 0 < len(personal["alerts"]) < len(raw["alerts"])
     assert all(a["fraud_probability"] >= personal["threshold"] for a in personal["alerts"])
+
+
+def test_alerts_learn_from_feedback_and_only_reorder(make_client, monkeypatch):
+    import numpy as np
+    import webapp.routes.fraud as fraud_module
+
+    def high(df):
+        out = df.copy()
+        out["fraud_probability"] = np.linspace(0.99, 0.9, len(df))
+        out["is_flagged"] = True
+        return out
+
+    monkeypatch.setattr(fraud_module, "predict_fraud", high)
+    client = make_client("alice")
+    base = client.get("/api/v1/fraud/alerts?threshold=0.5&personalize=0").get_json()
+    assert base["learning"]["active"] is False
+
+    # Label 6 expensive charges suspicious and 6 cheap ones as the user's own: a learnable pattern.
+    alerts = sorted(base["alerts"], key=lambda a: a["amount"])
+    cheap, pricey = alerts[:6], alerts[-6:]
+    for a in cheap:
+        client.post("/api/v1/fraud/feedback", json={"transaction_id": a["transaction_id"], "feedback": "CONFIRMED_ME"})
+    for a in pricey:
+        client.post("/api/v1/fraud/feedback", json={"transaction_id": a["transaction_id"], "feedback": "SUSPICIOUS"})
+
+    after = client.get("/api/v1/fraud/alerts?threshold=0.5").get_json()
+    off = client.get("/api/v1/fraud/alerts?threshold=0.5&personalize=0").get_json()
+    assert after["learning"]["labels"] >= 12  # other tests may have reviewed an alert too
+    if after["learning"]["active"]:
+        assert all(a["p_suspicious"] is not None for a in after["alerts"])
+        # (the cutoff itself may be personalised too, so `after` can be a subset of `off`; the re-ranker adds nothing new and drops nothing)
+        assert {a["transaction_id"] for a in after["alerts"]} <= {a["transaction_id"] for a in off["alerts"]}
+        ps = [a["p_suspicious"] for a in after["alerts"]]
+        assert ps == sorted(ps, reverse=True)
+    else:  # the bar for switching on wasn't met by this seeded data; then alerts carry no learned score
+        assert all(a["p_suspicious"] is None for a in after["alerts"])

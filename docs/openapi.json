@@ -337,7 +337,7 @@
               ],
               "default": "1"
             },
-            "description": "0 = use the threshold exactly as given. By default, once you have ~200 scored debits the cutoff is raised to just above your own normal level (never lowered, capped at 0.97); threshold_source in the response says which applied."
+            "description": "0 = use the threshold exactly as given. By default, once you have ~200 scored debits the cutoff is raised to just above your own normal level (never lowered, capped at 0.97); threshold_source in the response says which applied. Also controls the feedback-trained re-ranking; the response's `learning` object says whether it is active and why not."
           }
         ],
         "responses": {

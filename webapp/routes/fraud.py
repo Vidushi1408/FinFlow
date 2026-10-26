@@ -5,6 +5,7 @@ import pandas as pd
 from ml.fraud_model import predict_fraud
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
+from webapp.services.alert_learning import LOOKS_LIKE_YOURS_BELOW, build_features, fit_feedback_model, p_suspicious
 from webapp.services.alert_threshold import effective_threshold
 
 fraud_bp = Blueprint('fraud', __name__, url_prefix='/api/v1/fraud')
@@ -60,6 +61,30 @@ def _explain(row, profile):
     if not reasons:
         reasons.append("unusual pattern compared with your normal activity")
     return reasons
+
+
+def _learn_from_feedback(account_ids, profile):
+    """(model_or_None, info) fitted from this user's own reviewed alerts. Never raises: any problem
+    (no trained fraud model, no feedback) just means learning stays off."""
+    info = {"labels": 0, "active": False, "cv_auc": None, "reason": "no feedback yet"}
+    rows = g.db.execute(text("""
+        SELECT f.transaction_id, f.merchant_id, f.amount, f.transaction_ts, f.transaction_type, ff.feedback
+        FROM fraud_feedback ff JOIN fact_transactions f ON f.transaction_id = ff.transaction_id
+        WHERE ff.user_id = :uid AND f.account_id = ANY(:aids)
+    """), {"uid": current_user.id, "aids": account_ids}).fetchall()
+    if not rows:
+        return None, info
+    labelled = pd.DataFrame(rows, columns=["transaction_id", "merchant_id", "amount", "transaction_ts", "transaction_type", "feedback"])
+    labelled["amount"] = labelled["amount"].astype(float)
+    labelled["transaction_ts"] = pd.to_datetime(labelled["transaction_ts"])
+    try:
+        scored = predict_fraud(labelled)
+    except FileNotFoundError:
+        info["reason"] = "fraud model not trained"
+        return None, info
+    labelled["fraud_probability"] = scored["fraud_probability"]
+    X = build_features(labelled, profile)
+    return fit_feedback_model(X, (labelled["feedback"] == "SUSPICIOUS").astype(int))
 
 
 @fraud_bp.route('/alerts', methods=['GET'])
@@ -124,6 +149,15 @@ def get_fraud_alerts():
         """), {"uid": current_user.id, "aids": account_ids}).fetchall()
     }
 
+    # Re-rank by what this user's own feedback says looks suspicious vs. like them. Ordering and a hint only:
+    # no alert is ever removed by this. `personalize=0` turns it off.
+    learning = {"labels": len(feedback_rows), "active": False, "cv_auc": None, "reason": "personalisation off"}
+    p_map = {}
+    if request.args.get('personalize', default='1') != '0':
+        learned, learning = _learn_from_feedback(account_ids, profile)
+        if learned is not None and not flagged.empty:
+            p_map = dict(zip(flagged['transaction_id'], p_suspicious(learned, build_features(flagged, profile))))
+
     alerts = []
     suppressed = 0
     for _, row in flagged.iterrows():
@@ -141,13 +175,18 @@ def get_fraud_alerts():
             "fraud_probability": float(row['fraud_probability']),
             "is_flagged": bool(row['is_flagged']),
             "reasons": _explain(row, profile),
-            "feedback": feedback_map.get(row['transaction_id'])
+            "feedback": feedback_map.get(row['transaction_id']),
+            "p_suspicious": round(float(p_map[row['transaction_id']]), 3) if row['transaction_id'] in p_map else None,
+            "resembles_yours": bool(row['transaction_id'] in p_map and p_map[row['transaction_id']] < LOOKS_LIKE_YOURS_BELOW),
         })
+    if p_map:
+        alerts.sort(key=lambda a: (-(a["p_suspicious"] or 0), -a["fraud_probability"]))
 
     return jsonify({
         "threshold": threshold,
         "threshold_source": threshold_source,
         "alerts": alerts,
+        "learning": learning,
         "suppressed_trusted_merchant_count": suppressed
     })
 

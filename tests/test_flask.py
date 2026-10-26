@@ -443,6 +443,7 @@ def test_fraud_alerts_returns_flagged_transactions(auth_client, mock_db, monkeyp
         [("acc-1",)],  # user_account_ids
         [],            # fraud_feedback
         [],            # trusted (CONFIRMED_ME) merchants
+        [],            # reviewed alerts for the feedback re-ranker
     ]
 
     tx_df = pd.DataFrame({

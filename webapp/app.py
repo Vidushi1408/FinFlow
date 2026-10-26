@@ -15,6 +15,7 @@ from webapp.database import SessionLocal
 from webapp.auth import login_manager
 from webapp.extensions import limiter
 from webapp import metrics
+from webapp.observability import init_error_tracking
 
 from webapp.routes.auth import auth_bp
 from webapp.routes.spending import spending_bp
@@ -76,6 +77,7 @@ def load_secret_key(env=os.environ):
     return key
 
 
+init_error_tracking()
 app = Flask(__name__)
 app.secret_key = load_secret_key()
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB, matches upload.py's own check

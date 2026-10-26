@@ -16,6 +16,7 @@
 </div>
 
 <div id="thresholdNote" class="alert alert-info py-2 d-none"></div>
+<div id="learningNote" class="alert alert-secondary py-2 d-none"></div>
 
 <div id="loadingState" class="state-placeholder">Checking for anything wrong&hellip;</div>
 <div id="errorState" class="state-placeholder d-none">Couldn't load alerts. <button class="btn btn-sm btn-outline-secondary" data-click="loadAlerts">Retry</button></div>
@@ -45,6 +46,14 @@ async function loadAlerts() {
             note.classList.add('d-none');
         }
 
+        const learn = document.getElementById('learningNote');
+        if (data.learning && data.learning.active) {
+            learn.innerText = `Sorted using your ${data.learning.labels} reviewed alerts: likelier-suspicious first. Nothing is hidden.`;
+            learn.classList.remove('d-none');
+        } else {
+            learn.classList.add('d-none');
+        }
+
         if (data.alerts.length === 0) {
             document.getElementById('emptyState').classList.remove('d-none');
         } else {
@@ -61,7 +70,8 @@ function renderAlerts(alerts) {
         <div class="card" id="alert-${escapeHtml(a.transaction_id)}">
             <div class="d-flex justify-content-between flex-wrap">
                 <div>
-                    <h3 class="mb-1">${escapeHtml(a.merchant_id)} &mdash; ${formatINR(a.amount)}</h3>
+                    <h3 class="mb-1">${escapeHtml(a.merchant_id)} &mdash; ${formatINR(a.amount)}
+                        ${a.resembles_yours ? '<span class="badge text-bg-light border ms-2" title="Similar to alerts you marked as yours">Resembles charges you confirmed</span>' : ''}</h3>
                     <p class="mb-2" style="color: var(--text-secondary);">${escapeHtml(a.date)}</p>
                     <ul class="mb-2">
                         ${a.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}

@@ -479,7 +479,11 @@ shown either way, so the forecast never claims false precision.
   (not the model) is personalised: raised to just above what their own normal activity scores, never
   lowered below their chosen sensitivity and capped at 0.97 so extreme outliers always alert
   (`webapp/services/alert_threshold.py`; the Alerts page says when it applied). The model itself is
-  still trained once, globally.
+  still trained once, globally. Your "This was me" / "Report as suspicious" clicks also train a tiny
+  per-user logistic regression (`webapp/services/alert_learning.py`) that **re-orders** your alerts, likelier
+  suspicious first, and tags ones resembling charges you confirmed. It never hides an alert, switches on only
+  with 12+ reviews (3+ of each kind) and a cross-validated AUC of at least 0.65, and is fitted on the fly from
+  your own feedback rows (nothing stored or shared). `?personalize=0` turns both personalisations off.
 - **Generator income/spend calibration is approximate.** Spend is anchored to
   each persona's income (`target_spend_ratio` in `data_generator/generate_mock_data.py`),
   which keeps totals realistic across a wide range of `--transactions`
@@ -503,10 +507,8 @@ shown either way, so the forecast never claims false precision.
 
 - Per-user model fine-tuning once a user has enough of their own history (the alert *cutoff* is already
   personalised; the model is not)
-- Retrain the fraud model on feedback. Today "This was me" suppresses repeat alerts for that merchant
-  and the Model Info page reports how you judged your alerts, but the labels don't feed training (an
-  unsupervised Isolation Forest has no natural place for them; a supervised stage on top would)
-- An error-tracking integration (e.g. Sentry), and making email verification gate sensitive actions
+- Feed feedback into the model itself. Today it drives a per-user re-ranker, not training (below)
+- Make email verification gate sensitive actions (it is informational today)
 - Tighten `style-src` (drop inline `style=` attributes) and self-host the Inter web font (still loaded from Google Fonts)
 - Real, anonymised bank statements added to `tests/fixtures/bank_statements/` whenever an import fails;
   the current fixtures are reconstructions of the layouts, not real exports
