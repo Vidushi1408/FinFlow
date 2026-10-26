@@ -326,8 +326,12 @@ python scripts/stream_data.py --once                       # single batch, then 
   caller's own accounts, output escaping in the UI, same-site-only redirects
   after login, `HttpOnly`/`SameSite` (and `Secure` in production) cookies, and
   `nosniff`/`X-Frame-Options`/`Referrer-Policy` headers.
-- **What isn't:** no Content-Security-Policy (the pages use inline scripts and
-  CDN assets).
+- **Content-Security-Policy.** Enforced: `object-src 'none'; base-uri 'self'; frame-ancestors 'none';
+  form-action 'self'`. The strict script policy (`script-src 'self' 'nonce-…'` plus the jsDelivr CDN) ships in
+  **report-only** mode: inline `<script>` tags already carry the per-request nonce, but about 26 inline
+  event handlers (`onclick=…`) must move into static JS before `script-src` can be enforced without
+  breaking pages. Violations are logged by `/csp-report`, which shows what is left to fix.
+- **What isn't:** `script-src` is not yet enforced (see above).
 - Internal errors are logged server-side; clients only see generic messages.
 - **Rate-limit storage.** Set `REDIS_URL` to share login-rate-limit counters
   across workers/containers via Redis; without it, Flask-Limiter falls back to

@@ -21,7 +21,7 @@
 
 <div id="alertsList"></div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 async function loadAlerts() {
     const threshold = document.getElementById('sensitivity').value;
     document.getElementById('loadingState').classList.remove('d-none');

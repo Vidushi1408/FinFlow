@@ -23,7 +23,7 @@
 
 <div id="goalsGrid" class="row g-3"></div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 async function loadGoals() {
     document.getElementById('loadingState').classList.remove('d-none');
     document.getElementById('errorState').classList.add('d-none');

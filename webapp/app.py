@@ -130,13 +130,53 @@ def teardown_request(exception):
             db.rollback()
         db.close()
 
+# Enforced: policies the pages already satisfy, so they close real holes (plugins, <base> hijacking,
+# framing, form posts to other origins) without breaking anything.
+CSP_ENFORCED = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+
+
+def _csp_nonce():
+    """Per-request nonce, created on first use (templates render before headers are added)."""
+    if not hasattr(g, "csp_nonce"):
+        g.csp_nonce = secrets.token_urlsafe(16)
+    return g.csp_nonce
+
+
+def _csp_report_only(nonce):
+    """The strict script policy, in report-only mode. Inline <script> tags carry this nonce, but about
+    26 inline event handlers (onclick=...) still need moving into static JS before script-src can be
+    enforced; violations are logged via /csp-report so that work can be measured, not guessed."""
+    return (
+        f"default-src 'self'; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+        "report-uri /csp-report"
+    )
+
+
 @app.after_request
 def add_security_headers(response):
-    # A Content-Security-Policy is deliberately not set: the pages use inline scripts and CDN assets.
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Content-Security-Policy", CSP_ENFORCED)
+    response.headers.setdefault("Content-Security-Policy-Report-Only", _csp_report_only(_csp_nonce()))
     return response
+
+
+@app.route("/csp-report", methods=["POST"])
+@csrf.exempt
+@limiter.limit("30 per minute")
+def csp_report():
+    """Browsers POST violation reports here (report-only mode). Log a trimmed copy; never trust or echo it."""
+    body = request.get_data(cache=False, as_text=True)[:2000]
+    logger.warning("CSP violation report: %s", body)
+    return "", 204
+
+
+@app.context_processor
+def inject_csp_nonce():
+    return {"csp_nonce": _csp_nonce()}
 
 
 @app.after_request

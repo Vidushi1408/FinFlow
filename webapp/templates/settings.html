@@ -60,7 +60,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.getElementById('settingsSensitivity').addEventListener('input', e => document.getElementById('sensVal').innerText = e.target.value);
 
 async function loadAccounts() {

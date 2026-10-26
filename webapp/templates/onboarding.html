@@ -39,7 +39,7 @@
 
 <div id="uploadPanel" class="mt-4"></div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.getElementById('onboardUploadForm').addEventListener('submit', function (e) {
     e.preventDefault();
     const file = this.querySelector('input[type=file]').files[0];

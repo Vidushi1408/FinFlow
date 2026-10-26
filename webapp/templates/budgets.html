@@ -11,7 +11,7 @@
 
 <div id="budgetGrid" class="row g-3 d-none"></div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 async function loadBudgets() {
     document.getElementById('loadingState').classList.remove('d-none');
     document.getElementById('errorState').classList.add('d-none');

@@ -24,7 +24,7 @@
     </table>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 async function loadSubscriptions() {
     document.getElementById('loadingState').classList.remove('d-none');
     document.getElementById('errorState').classList.add('d-none');

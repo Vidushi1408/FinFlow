@@ -1084,3 +1084,15 @@ def test_production_with_one_worker_still_requires_a_key():
     from webapp.app import load_secret_key
     with pytest.raises(RuntimeError, match="in production"):
         load_secret_key({"FLASK_ENV": "production", "GUNICORN_WORKERS": "1", "SECRET_KEY": ""})
+
+
+def test_csp_enforced_and_report_only_headers(client):
+    response = client.get("/login")
+    assert "object-src 'none'" in response.headers["Content-Security-Policy"]
+    report_only = response.headers["Content-Security-Policy-Report-Only"]
+    nonce = report_only.split("'nonce-")[1].split("'")[0]
+    assert f'nonce="{nonce}"' in response.get_data(as_text=True) or "<script nonce" not in response.get_data(as_text=True)
+
+
+def test_csp_report_endpoint_accepts_reports_without_csrf(client):
+    assert client.post("/csp-report", data='{"csp-report":{}}', content_type="application/csp-report").status_code == 204

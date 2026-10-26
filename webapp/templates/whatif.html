@@ -47,7 +47,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.getElementById('entReduction').addEventListener('input', e => document.getElementById('entVal').innerText = e.target.value + '%');
 document.getElementById('foodReduction').addEventListener('input', e => document.getElementById('foodVal').innerText = e.target.value + '%');
 
