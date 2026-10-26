@@ -19,7 +19,7 @@
 
 <div class="card mb-3">
     <h3>Loans &amp; EMIs</h3>
-    <p style="color: var(--text-secondary);">Adding your loans lets the money coach judge your EMI burden and which debt to clear first.</p>
+    <p class="text-secondary-fin">Adding your loans lets the money coach judge your EMI burden and which debt to clear first.</p>
     <div class="row g-2">
         <div class="col-md-3"><input type="text" id="loanName" class="form-control" placeholder="Loan (e.g. Bike loan)"></div>
         <div class="col-md-3"><input type="number" id="loanBalance" class="form-control" placeholder="Outstanding (₹)"></div>
@@ -70,9 +70,9 @@ function renderGoals(goals) {
                     <button class="btn btn-sm btn-outline-danger" data-gid="${escapeHtml(g.goal_id)}" data-click="deleteGoalClick">&times;</button>
                 </div>
                 <p class="mb-1">Target: ${formatINR(g.target_amount)} by ${escapeHtml(g.deadline)}</p>
-                <p class="mb-1" style="color: var(--text-secondary);">${g.days_left} days left</p>
+                <p class="mb-1 text-secondary-fin">${g.days_left} days left</p>
                 <p class="mb-1">Need to save: <strong>${formatINR(g.required_monthly_saving)}/mo</strong></p>
-                <p class="mb-2" style="color: var(--text-secondary);">You're currently saving ~${formatINR(g.recent_avg_monthly_savings)}/mo</p>
+                <p class="mb-2 text-secondary-fin">You're currently saving ~${formatINR(g.recent_avg_monthly_savings)}/mo</p>
                 <span class="badge ${g.on_track ? 'badge-status-green' : 'badge-status-red'}">
                     ${g.on_track ? 'On track' : 'Off track'}
                 </span>

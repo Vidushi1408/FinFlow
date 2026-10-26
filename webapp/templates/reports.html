@@ -8,7 +8,7 @@
 
 <div class="card mb-3">
     <div class="d-flex align-items-center gap-2 flex-wrap">
-        <input type="month" id="monthPicker" class="form-control" style="max-width: 200px;">
+        <input type="month" id="monthPicker" class="form-control maxw-200">
         <button class="btn btn-outline-secondary" data-click="loadReport">View</button>
         <a id="exportCsv" class="btn btn-outline-secondary" href="#">Export CSV</a>
         <a id="exportPdf" class="btn btn-outline-secondary" href="#">Export PDF</a>
@@ -41,13 +41,13 @@
 
     <div class="card mt-3">
         <h3>Suggested next steps</h3>
-        <p style="color: var(--text-secondary);">Ranked from your own last three full months. General budgeting guidance, not personalised investment or tax advice.</p>
+        <p class="text-secondary-fin">Ranked from your own last three full months. General budgeting guidance, not personalised investment or tax advice.</p>
         <div id="adviceList"></div>
     </div>
 
     <div class="card mt-3">
         <h3>Ask your money coach</h3>
-        <p style="color: var(--text-secondary);">
+        <p class="text-secondary-fin">
             Answered by a local AI model (Ollama) running on this machine &mdash; it only sees your report
             and the suggestions above, nothing else.
         </p>
@@ -59,7 +59,7 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" data-click="askSuggested">Can I afford a ₹20,000 purchase next month?</button>
         </div>
 
-        <div id="chatLog" style="max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;"></div>
+        <div class="chat-log" id="chatLog"></div>
         <div id="chatError" class="alert alert-danger py-2 d-none"></div>
 
         <form id="chatForm" class="d-flex gap-2" data-submit="sendChatMessage">
@@ -137,7 +137,7 @@ async function loadAdvice() {
         box.innerHTML = data.recommendations.map(r => `<div class="border-bottom py-2">
             <span class="badge bg-${PRIORITY_BADGE[r.priority] || 'secondary'} me-2">${escapeHtml(r.priority)}</span>
             <strong>${escapeHtml(r.title)}</strong>
-            <div style="color: var(--text-secondary);">${escapeHtml(r.detail)}</div>
+            <div class="text-secondary-fin">${escapeHtml(r.detail)}</div>
             ${r.id === 'all-clear' || r.id === 'need-history' ? '' : `<div class="mt-1">
                 <button class="btn btn-sm btn-outline-success py-0" data-aid="${escapeHtml(r.id)}" data-fb="USEFUL" data-click="adviceFeedback">${r.marked_useful ? '&#10003; ' : ''}Useful</button>
                 <button class="btn btn-sm btn-outline-secondary py-0" data-aid="${escapeHtml(r.id)}" data-fb="DISMISSED" data-click="adviceFeedback">Hide for 30 days</button></div>`}</div>`).join('');

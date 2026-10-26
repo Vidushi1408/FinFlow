@@ -136,8 +136,9 @@ def teardown_request(exception):
         db.close()
 
 # Content-Security-Policy, enforced. Inline <script> tags carry a per-request nonce and UI actions are wired
-# through delegated data-click/data-submit handlers in static/js/app.js, so no 'unsafe-inline' scripts.
-# Styles still allow inline (style="..." attributes are used throughout the templates).
+# through delegated data-click/data-submit handlers in static/js/app.js, so no 'unsafe-inline' scripts. Styles come
+# from static CSS files only (utility classes replaced the inline style="..." attributes; Bootstrap, Chart.js and the
+# Inter font are vendored), so the policy needs no third-party host and no 'unsafe-inline' anywhere.
 CSP_BASE = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 
 
@@ -151,8 +152,8 @@ def _csp_nonce():
 def _csp_full(nonce):
     return (
         f"default-src 'self'; script-src 'self' 'nonce-{nonce}'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+        "style-src 'self'; "
+        "font-src 'self'; img-src 'self' data:; connect-src 'self'; "
         f"{CSP_BASE}; report-uri /csp-report"
     )
 

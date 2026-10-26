@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}FinFlow{% endblock %}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" rel="stylesheet">
     <script src="{{ url_for('static', filename='vendor/chart.umd.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -81,7 +80,7 @@
 {% if current_user.is_authenticated %}
 <footer class="app-footer text-center py-3">
     <small>FinFlow &mdash; Where did my money go? Is anything wrong? Will I be okay next month?
-        &middot; <a href="/api/docs" style="color: inherit;">API docs</a>
+        &middot; <a class="link-inherit" href="/api/docs">API docs</a>
     </small>
 </footer>
 {% endif %}

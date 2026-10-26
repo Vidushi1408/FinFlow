@@ -13,7 +13,7 @@
     <div class="col-md-6">
         <div class="card">
             <h3>Unusual-Activity Detection</h3>
-            <p style="color: var(--text-secondary);">Flags transactions that look unusual compared with <em>your own</em> normal spending. It cannot tell whether a transaction is actually fraud &mdash; only that it deserves a look.</p>
+            <p class="text-secondary-fin">Flags transactions that look unusual compared with <em>your own</em> normal spending. It cannot tell whether a transaction is actually fraud &mdash; only that it deserves a look.</p>
             <div id="fraudInfo"></div>
         </div>
     </div>
@@ -48,7 +48,7 @@ function renderInfo(data) {
     const fraud = data.fraud_model;
     document.getElementById('fraudInfo').innerHTML = fraud ? `
         <p><strong>${fraud.algorithm}</strong></p>
-        <p style="color: var(--text-secondary);">${fraud.plain_language}</p>
+        <p class="text-secondary-fin">${fraud.plain_language}</p>
         <ul class="mb-0">
             <li>Trained: ${fraud.training_date ? new Date(fraud.training_date).toLocaleDateString() : 'unknown'}</li>
             <li>Training rows: ${fraud.training_rows ?? '--'}</li>
@@ -67,7 +67,7 @@ function renderInfo(data) {
     const cf = data.cashflow_model;
     document.getElementById('cashflowInfo').innerHTML = cf ? `
         <p><strong>${cf.algorithm}</strong></p>
-        <p style="color: var(--text-secondary);">${cf.plain_language}</p>
+        <p class="text-secondary-fin">${cf.plain_language}</p>
         <ul class="mb-0">
             <li>Trained: ${cf.training_date ? new Date(cf.training_date).toLocaleDateString() : 'unknown'}</li>
             <li>Training rows: ${cf.training_rows ?? '--'}</li>

@@ -10,7 +10,7 @@
     <div class="col-md-6">
         <div class="card h-100">
             <h3>Upload a bank CSV</h3>
-            <p style="color: var(--text-secondary);">We'll map the columns automatically (Date, Description, Amount, Type) and show a preview before saving.</p>
+            <p class="text-secondary-fin">We'll map the columns automatically (Date, Description, Amount, Type) and show a preview before saving.</p>
             <form id="onboardUploadForm" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
@@ -24,7 +24,7 @@
     <div class="col-md-6">
         <div class="card h-100">
             <h3>Load demo data</h3>
-            <p style="color: var(--text-secondary);">See FinFlow with realistic data right away. Pick the persona closest to you.</p>
+            <p class="text-secondary-fin">See FinFlow with realistic data right away. Pick the persona closest to you.</p>
             <form method="POST" action="{{ url_for('auth.onboarding') }}">
                 {{ demo_form.hidden_tag() }}
                 <div class="mb-3">

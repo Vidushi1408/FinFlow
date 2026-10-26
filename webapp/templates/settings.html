@@ -25,7 +25,7 @@
             <div class="mb-3">
                 <label class="form-label">Alert sensitivity: <span id="sensVal">{{ current_user.alert_sensitivity }}</span></label>
                 <input type="range" id="settingsSensitivity" min="0" max="1" step="0.05" class="form-range" value="{{ current_user.alert_sensitivity }}">
-                <small style="color: var(--text-secondary);">Lower = more alerts flagged.</small>
+                <small class="text-secondary-fin">Lower = more alerts flagged.</small>
             </div>
             <button class="btn btn-primary" data-click="saveProfile">Save settings</button>
             <div id="profileMsg" class="mt-2"></div>
@@ -33,13 +33,13 @@
 
         <div class="card">
             <h3>Category Rules</h3>
-            <p style="color: var(--text-secondary);">Rules you've created from Transactions ("always categorize X as Y") are applied automatically to new uploads. Manage individual transactions there.</p>
+            <p class="text-secondary-fin">Rules you've created from Transactions ("always categorize X as Y") are applied automatically to new uploads. Manage individual transactions there.</p>
             <a href="{{ url_for('transactions_page') }}" class="btn btn-outline-secondary btn-sm">Go to Transactions</a>
         </div>
 
         <div class="card">
             <h3>Model Info</h3>
-            <p style="color: var(--text-secondary);">See what's powering your unusual-activity alerts and cash flow forecast, and how well they actually perform.</p>
+            <p class="text-secondary-fin">See what's powering your unusual-activity alerts and cash flow forecast, and how well they actually perform.</p>
             <a href="{{ url_for('about_models_page') }}" class="btn btn-outline-secondary btn-sm">View model info</a>
         </div>
     </div>
@@ -48,7 +48,7 @@
         <div class="card">
             <h3>Accounts</h3>
             <div id="accountsList"><div class="state-placeholder">Loading&hellip;</div></div>
-            <p class="mt-2 mb-0"><small style="color: var(--text-secondary);">Savings goals moved to their own <a href="{{ url_for('goals_page') }}">Goals</a> page.</small></p>
+            <p class="mt-2 mb-0"><small class="text-secondary-fin">Savings goals moved to their own <a href="{{ url_for('goals_page') }}">Goals</a> page.</small></p>
         </div>
 
         <div class="card">
@@ -73,7 +73,7 @@ async function loadAccounts() {
             <div class="d-flex justify-content-between align-items-center border-bottom py-2">
                 <div>
                     <strong>${escapeHtml(a.institution)} ${escapeHtml(a.account_type)}</strong><br>
-                    <small style="color: var(--text-secondary);">${escapeHtml(a.account_number_masked || '')} &middot; opened ${escapeHtml(a.opened_date)}</small>
+                    <small class="text-secondary-fin">${escapeHtml(a.account_number_masked || '')} &middot; opened ${escapeHtml(a.opened_date)}</small>
                 </div>
                 <span>${formatINR(a.latest_balance)}</span>
             </div>

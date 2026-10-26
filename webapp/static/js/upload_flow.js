@@ -79,17 +79,17 @@ function startUploadFlow(file, container, callbacks = {}) {
 
             const ob = data.opening_balance;
             if (ob && ob.source === 'statement') {
-                body += `<p class="mb-2"><small style="color: var(--text-secondary);">Opening balance ${formatINR(ob.value)} worked out from the statement's balance column.</small></p>`;
+                body += `<p class="mb-2"><small class="text-secondary-fin">Opening balance ${formatINR(ob.value)} worked out from the statement's balance column.</small></p>`;
             } else if (ob && ob.editable) {
                 body += `<div class="mb-3"><label class="form-label mb-1"><small>Balance before the first transaction in this file (optional)</small></label>
-                    <input type="text" inputmode="decimal" class="form-control form-control-sm" style="max-width: 220px;" id="uploadOpeningBalance"
+                    <input type="text" inputmode="decimal" class="form-control form-control-sm maxw-220" id="uploadOpeningBalance"
                         placeholder="e.g. 25000" value="${escapeHtml(openingBalance)}">
-                    <small style="color: var(--text-secondary);">No balance column found. Leave blank to start from \u20B90 &mdash; your balance will then show the net change since this statement, not your real balance.</small></div>`;
+                    <small class="text-secondary-fin">No balance column found. Leave blank to start from \u20B90 &mdash; your balance will then show the net change since this statement, not your real balance.</small></div>`;
             }
 
             const chips = Object.entries(data.category_counts)
                 .map(([cat, n]) => `<span class="badge text-bg-secondary me-1">${escapeHtml(cat)} ${n}</span>`).join('');
-            body += `<p class="mb-2"><small style="color: var(--text-secondary);">Auto-categorized:</small> ${chips}</p>`;
+            body += `<p class="mb-2"><small class="text-secondary-fin">Auto-categorized:</small> ${chips}</p>`;
 
             const rows = data.preview.map(p => `<tr>
                 <td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.description)}</td>
@@ -98,13 +98,13 @@ function startUploadFlow(file, container, callbacks = {}) {
             body += `<div class="table-responsive"><table class="table table-sm">
                 <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th class="text-end">Amount</th></tr></thead>
                 <tbody>${rows}</tbody></table></div>
-                <small style="color: var(--text-secondary);">Showing the first ${data.preview.length} of ${s.rows}. You can change any category after importing.</small>`;
+                <small class="text-secondary-fin">Showing the first ${data.preview.length} of ${s.rows}. You can change any category after importing.</small>`;
         }
 
         container.innerHTML = `
             <div class="card">
                 <h3>Check how we read ${escapeHtml(file.name)}</h3>
-                <p style="color: var(--text-secondary);">We matched your columns automatically. If anything looks wrong, pick the right column below.</p>
+                <p class="text-secondary-fin">We matched your columns automatically. If anything looks wrong, pick the right column below.</p>
                 <div class="row g-2 mb-3">${selects}</div>
                 ${body}
                 <div id="uploadFlowMsg"></div>

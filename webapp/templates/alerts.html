@@ -9,11 +9,11 @@
 <div class="card mb-3">
     <div class="d-flex align-items-center gap-3 flex-wrap">
         <label class="mb-0"><small>Sensitivity</small></label>
-        <input type="range" min="0" max="1" step="0.05" id="sensitivity" value="{{ current_user.alert_sensitivity }}" style="max-width: 240px;">
+        <input class="maxw-240" type="range" min="0" max="1" step="0.05" id="sensitivity" value="{{ current_user.alert_sensitivity }}">
         <span id="sensitivityValue">{{ current_user.alert_sensitivity }}</span>
-        <small style="color: var(--text-secondary);">Lower = more alerts. Change this permanently in Settings.</small>
+        <small class="text-secondary-fin">Lower = more alerts. Change this permanently in Settings.</small>
         <label class="mb-0 ms-3"><small>Look back</small></label>
-        <select id="windowDays" class="form-select form-select-sm" style="max-width: 150px;">
+        <select id="windowDays" class="form-select form-select-sm maxw-150">
             <option value="30">30 days</option>
             <option value="90" selected>90 days</option>
             <option value="180">6 months</option>
@@ -80,7 +80,7 @@ function renderAlerts(alerts) {
                 <div>
                     <h3 class="mb-1">${escapeHtml(a.merchant_id)} &mdash; ${formatINR(a.amount)}
                         ${a.resembles_yours ? '<span class="badge text-bg-light border ms-2" title="Similar to alerts you marked as yours">Resembles charges you confirmed</span>' : ''}</h3>
-                    <p class="mb-2" style="color: var(--text-secondary);">${escapeHtml(a.date)}</p>
+                    <p class="mb-2 text-secondary-fin">${escapeHtml(a.date)}</p>
                     <ul class="mb-2">
                         ${a.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
                     </ul>

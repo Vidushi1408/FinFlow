@@ -41,7 +41,7 @@ function renderBudgets(budgets) {
             <div class="card">
                 <h3>${escapeHtml(b.category_name)}</h3>
                 <p class="mb-1">${formatINR(b.spent_this_month)} ${limit ? 'of ' + formatINR(limit) : 'spent (no limit set)'}</p>
-                ${limit ? `<div class="progress mb-2"><div class="progress-bar ${barClass}" style="width:${pct}%"></div></div>` : ''}
+                ${limit ? `<div class="progress mb-2"><div class="progress-bar ${barClass}" data-pct="${pct}"></div></div>` : ''}
                 <p class="metric-sub mb-3">Projected month-end: ${formatINR(b.projected_month_end)}</p>
                 <div class="d-flex gap-2">
                     <input type="number" min="0" class="form-control form-control-sm" placeholder="Set limit" value="${limit || ''}" id="limit-${escapeHtml(b.category_id)}">
@@ -50,6 +50,8 @@ function renderBudgets(budgets) {
             </div>
         </div>`;
     }).join('');
+    // widths are set through the CSSOM (an inline style attribute would be blocked by the CSP)
+    document.querySelectorAll('.progress-bar[data-pct]').forEach(el => { el.style.width = el.dataset.pct + '%'; });
 }
 
 function saveBudgetClick(el) { saveBudget(el.dataset.cat); }

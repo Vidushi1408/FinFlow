@@ -1089,7 +1089,8 @@ def test_production_with_one_worker_still_requires_a_key():
 
 def test_full_csp_is_enforced_with_a_nonce_matching_the_inline_scripts(client):
     csp = client.get("/login").headers["Content-Security-Policy"]
-    assert "script-src 'self' 'nonce-" in csp and "'unsafe-inline'" not in csp.split("style-src")[0]
+    assert "script-src 'self' 'nonce-" in csp and "'unsafe-inline'" not in csp          # no inline scripts OR styles
+    assert "http" not in csp.replace("report-uri", "")                                    # no third-party host at all
     assert "object-src 'none'" in csp and "frame-ancestors 'none'" in csp
     assert "Content-Security-Policy-Report-Only" not in client.get("/login").headers
 
@@ -1138,3 +1139,12 @@ def test_pages_load_no_third_party_scripts_and_the_vendored_files_exist(client):
         assert client.get(src).status_code == 200, src
     assert "cdn.jsdelivr.net" not in client.get("/login").headers["Content-Security-Policy"]
     assert (Path(__file__).resolve().parent.parent / "webapp" / "static" / "vendor" / "README.md").exists()
+
+
+def test_no_template_or_script_uses_inline_style_attributes():
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "webapp"
+    offenders = [str(p.relative_to(root)) for p in list(root.glob("templates/**/*.html")) + list(root.glob("static/js/*.js"))
+                 if re.search(r'\sstyle="', p.read_text())]
+    assert offenders == [], "inline style attributes are blocked by the CSP; use a class in static/css/style.css"

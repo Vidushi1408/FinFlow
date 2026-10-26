@@ -173,7 +173,7 @@ async function loadCoachTop() {
         box.innerHTML = data.recommendations.slice(0, 2).map(r => `<div class="py-1">
             <span class="badge bg-${badge[r.priority] || 'secondary'} me-2">${escapeHtml(r.priority)}</span>
             <strong>${escapeHtml(r.title)}</strong>
-            <div style="color: var(--text-secondary);">${escapeHtml(r.detail)}</div></div>`).join('');
+            <div class="text-secondary-fin">${escapeHtml(r.detail)}</div></div>`).join('');
     } catch (e) {
         box.innerHTML = '<div class="state-placeholder">Suggestions are unavailable right now.</div>';
     }
