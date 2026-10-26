@@ -1125,3 +1125,15 @@ def test_metrics_endpoint_is_off_without_a_token_and_gated_with_one(client, monk
 
 def test_every_response_carries_a_request_id(client):
     assert client.get("/login").headers.get("X-Request-ID")
+
+
+def test_pages_load_no_third_party_scripts_and_the_vendored_files_exist(client):
+    import re
+    from pathlib import Path
+    html = client.get("/login").get_data(as_text=True)
+    scripts = re.findall(r'<script[^>]+src="([^"]+)"', html)
+    assert scripts and all(src.startswith("/static/") for src in scripts), scripts
+    for src in scripts:
+        assert client.get(src).status_code == 200, src
+    assert "cdn.jsdelivr.net" not in client.get("/login").headers["Content-Security-Policy"]
+    assert (Path(__file__).resolve().parent.parent / "webapp" / "static" / "vendor" / "README.md").exists()

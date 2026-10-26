@@ -341,8 +341,8 @@ python scripts/stream_data.py --once                       # single batch, then 
   caller's own accounts, output escaping in the UI, same-site-only redirects
   after login, `HttpOnly`/`SameSite` (and `Secure` in production) cookies, and
   `nosniff`/`X-Frame-Options`/`Referrer-Policy` headers.
-- **Content-Security-Policy, enforced.** `script-src 'self' 'nonce-…' https://cdn.jsdelivr.net` (no
-  `'unsafe-inline'` scripts), plus `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`,
+- **Content-Security-Policy, enforced.** `script-src 'self' 'nonce-…'` (no `'unsafe-inline'` scripts and no
+  third-party script host: Bootstrap and Chart.js are vendored in `webapp/static/vendor/`, with versions listed there), plus `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`,
   `form-action 'self'`, `connect-src 'self'`. Inline `<script>` tags carry a per-request nonce and UI buttons use
   delegated `data-click`/`data-submit` handlers (`static/js/app.js`) instead of inline `onclick=`; a test fails if
   an inline handler is reintroduced, and a browser test walks every page and demands a clean console. Violations
@@ -482,8 +482,8 @@ shown either way, so the forecast never claims false precision.
   values, but it's still a heuristic, not a calibrated economic model — a
   freelancer persona can occasionally end a year with a negative balance,
   which is intentionally left in as a realistic (not universal) outcome.
-- **Ledger export is CSV only.** The filtered transaction ledger exports as CSV; there's no PDF of it
-  (only the monthly report has a PDF).
+- **PDF amounts read `Rs.`, not ₹.** The PDF exports use ReportLab's built-in fonts, which can't draw the rupee
+  sign (it printed as a black square before this was fixed). The ledger PDF is capped at 5,000 rows; the CSV isn't.
 - **Balances of imported statements need a balance column or your input.**
   If the CSV has a running-balance column, the opening balance is worked out
   from it (and only trusted if it reconciles with the amounts). Otherwise the
@@ -503,7 +503,7 @@ shown either way, so the forecast never claims false precision.
   and the Model Info page reports how you judged your alerts, but the labels don't feed training (an
   unsupervised Isolation Forest has no natural place for them; a supervised stage on top would)
 - An error-tracking integration (e.g. Sentry), and making email verification gate sensitive actions
-- Tighten `style-src` (drop inline styles) and self-host Chart.js/Bootstrap so `script-src` needs no CDN
+- Tighten `style-src` (drop inline `style=` attributes) and self-host the Inter web font (still loaded from Google Fonts)
 - Real, anonymised bank statements added to `tests/fixtures/bank_statements/` whenever an import fails;
   the current fixtures are reconstructions of the layouts, not real exports
 - A larger local model (or a hosted one, if you accept data leaving the machine) for richer coaching;

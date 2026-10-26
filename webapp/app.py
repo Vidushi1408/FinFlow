@@ -148,8 +148,8 @@ def _csp_nonce():
 
 def _csp_full(nonce):
     return (
-        f"default-src 'self'; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        f"default-src 'self'; script-src 'self' 'nonce-{nonce}'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
         f"{CSP_BASE}; report-uri /csp-report"
     )
