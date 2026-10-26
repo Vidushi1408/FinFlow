@@ -43,6 +43,11 @@ Flask web app with server-rendered pages and a JSON API.
 - Goals: savings targets with required monthly saving and on/off-track status
   computed from actual trailing savings rate
 - Reports: plain-language monthly summary, CSV and PDF export
+- Money coach: the Reports page ranks data-driven suggestions (overspending, thin savings rate,
+  emergency buffer, budget overruns, spending spikes, subscription load, off-track goals) computed in
+  `webapp/services/advisor.py` from your own last three full months, and a chat assistant discusses them.
+  The chat runs on a **local Ollama model** (see "Money coach setup"); suggestions work without it.
+  It gives general budgeting guidance only: no specific products, tax advice, or promised returns
 - Settings: profile, currency, alert sensitivity, category rules, reset demo
   data, delete all data
 - Model Info page: what's powering unusual-activity alerts and forecasts, with honest
@@ -250,6 +255,14 @@ python data_generator/generate_mock_data.py --seed 7 --users 9 # sample data
 python etl_pipeline.py                                         # load it
 python train_models.py                                         # train + evaluate
 ```
+
+### Money coach setup (optional)
+
+The chat on the Reports page needs a local [Ollama](https://ollama.com) server; nothing is sent to any
+remote service. `ollama pull llama3.2:3b && ollama serve`, then optionally set `OLLAMA_URL` /
+`OLLAMA_MODEL` (a larger model such as `llama3.1:8b` answers noticeably better). In Docker the app reaches
+the host's Ollama via `host.docker.internal`. Without Ollama the chat shows a clear error and the
+"Suggested next steps" card (`GET /api/v1/reports/advice`) still works.
 
 ### Tests
 

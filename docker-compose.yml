@@ -70,7 +70,12 @@ services:
       # separately, so N workers give N times the intended limit. Becomes load-bearing the moment
       # GUNICORN_WORKERS is set above 1.
       - REDIS_URL=redis://redis:6379/0
+      # The money-coach chat talks to an Ollama server running on the host machine, never a remote one.
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
       - PYTHONPATH=/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       # the slim image has no curl; /health returns 503 (=> urlopen raises) when the DB is unreachable
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=4)"]

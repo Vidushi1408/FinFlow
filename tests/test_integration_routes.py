@@ -143,6 +143,76 @@ def test_monthly_report_json_csv_and_pdf(make_client):
     assert client.get("/api/v1/reports/monthly?month=garbage").status_code == 400
 
 
+def test_report_chat_answers_from_this_users_own_report(make_client, monkeypatch):
+    """The chat route never talks to a real Ollama server in tests -- _call_ollama is replaced so
+    we can assert on exactly what context it was given, instead of depending on a local model."""
+    import webapp.routes.reports as reports_module
+
+    captured = {}
+
+    def fake_call_ollama(messages):
+        captured["messages"] = messages
+        return "You spent some money."
+
+    monkeypatch.setattr(reports_module, "_call_ollama", fake_call_ollama)
+
+    client = make_client("alice")
+    response = client.post("/api/v1/reports/chat", json={"message": "How much did I spend?", "month": THIS_MONTH})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["reply"] == "You spent some money."
+    assert body["month"] == THIS_MONTH
+
+    # The model only ever sees this user's own already-scoped report JSON, plus their message --
+    # never raw transaction rows, never another user's data.
+    system_content = captured["messages"][0]["content"]
+    assert system_content.startswith("You are FinFlow's money coach")
+    assert f'"month": "{THIS_MONTH}"' in system_content
+    assert captured["messages"][-1] == {"role": "user", "content": "How much did I spend?"}
+
+
+def test_report_chat_sends_trimmed_history_to_the_model(make_client, monkeypatch):
+    import webapp.routes.reports as reports_module
+
+    captured = {}
+    monkeypatch.setattr(reports_module, "_call_ollama", lambda messages: captured.setdefault("messages", messages) or "ok")
+
+    client = make_client("alice")
+    history = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i}"} for i in range(20)]
+    client.post("/api/v1/reports/chat", json={"message": "and now?", "history": history})
+
+    # system prompt + at most CHAT_HISTORY_MAX_TURNS history turns + the new user message
+    sent = captured["messages"]
+    assert sent[0]["role"] == "system"
+    assert sent[-1] == {"role": "user", "content": "and now?"}
+    assert len(sent) - 2 == reports_module.CHAT_HISTORY_MAX_TURNS
+    assert sent[1]["content"] == "turn 8"  # oldest kept turn, after trimming to the last 12
+
+
+def test_report_chat_rejects_empty_or_oversized_message(make_client):
+    client = make_client("alice")
+    assert client.post("/api/v1/reports/chat", json={"message": ""}).status_code == 400
+    assert client.post("/api/v1/reports/chat", json={}).status_code == 400
+    assert client.post("/api/v1/reports/chat", json={"message": "x" * 3000}).status_code == 400
+    assert client.post("/api/v1/reports/chat", json={"message": "hi", "month": "garbage"}).status_code == 400
+
+
+def test_report_chat_returns_503_when_ollama_is_unreachable(make_client, monkeypatch):
+    import webapp.routes.reports as reports_module
+
+    def raise_ollama_error(messages):
+        raise reports_module.OllamaError("Can't reach the local Ollama server at http://localhost:11434.")
+
+    monkeypatch.setattr(reports_module, "_call_ollama", raise_ollama_error)
+
+    client = make_client("alice")
+    response = client.post("/api/v1/reports/chat", json={"message": "hi"})
+
+    assert response.status_code == 503
+    assert "Ollama" in response.get_json()["error"]["message"]
+
+
 def test_spending_budgets_and_subscriptions_endpoints_run_real_sql(make_client):
     client = make_client("alice")
     summary = client.get(f"/api/v1/spending/summary?month={THIS_MONTH}")
@@ -280,3 +350,21 @@ def test_transactions_account_id_filter_rejects_an_injection_attempt_as_an_unkno
     response = alice.get("/api/v1/transactions", query_string={"account_id": "'; DROP TABLE fact_transactions; --"})
     assert response.status_code == 400   # not in this user's account_ids -> rejected before it ever reaches SQL
     assert _table_exists("fact_transactions")
+
+
+def test_advice_endpoint_returns_ranked_recommendations(make_client):
+    client = make_client("alice")
+    response = client.get("/api/v1/reports/advice")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["recommendations"] and "disclaimer" in body
+    assert {"id", "priority", "title", "detail", "monthly_impact"} <= set(body["recommendations"][0])
+
+
+def test_report_chat_includes_recommendations_in_model_context(make_client, monkeypatch):
+    import webapp.routes.reports as reports_module
+
+    captured = {}
+    monkeypatch.setattr(reports_module, "_call_ollama", lambda m: captured.setdefault("m", m) and "ok")
+    make_client("alice").post("/api/v1/reports/chat", json={"message": "What should I do?"})
+    assert "Recommendations (JSON, ranked)" in captured["m"][0]["content"]

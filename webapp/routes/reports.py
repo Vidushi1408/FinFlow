@@ -1,5 +1,9 @@
 import io
 import csv
+import json
+import os
+import urllib.error
+import urllib.request
 from datetime import date, datetime
 
 from flask import Blueprint, jsonify, request, g, Response
@@ -8,11 +12,56 @@ from sqlalchemy import text
 
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
+from webapp.extensions import limiter
+from webapp.services.advisor import build_financial_profile, build_recommendations
 from etl.transform.clean import summarize_recurring_series
 from ml.fraud_model import predict_fraud
 import pandas as pd
 
 reports_bp = Blueprint('reports', __name__, url_prefix='/api/v1/reports')
+
+# Local Ollama server (never a remote endpoint -- report data, which is per-user financial detail,
+# is only ever sent to a model running on this machine). Override via env if Ollama listens elsewhere.
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+OLLAMA_TIMEOUT_S = 60
+CHAT_MESSAGE_MAX_LEN = 2000
+CHAT_HISTORY_MAX_TURNS = 12  # trims the payload sent to the model, not what the user sees
+
+
+class OllamaError(RuntimeError):
+    """Ollama is unreachable, mis-configured, or returned something unusable."""
+
+
+def _call_ollama(messages):
+    """POST messages to the local Ollama /api/chat endpoint and return the assistant's reply text.
+    Raises OllamaError (never a raw network/JSON exception) so the route can show a clear message
+    instead of a 500."""
+    payload = json.dumps({"model": OLLAMA_MODEL, "messages": messages, "stream": False}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{OLLAMA_URL}/api/chat", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_S) as resp:  # nosec B310 -- fixed localhost URL, never user input
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:300]
+        raise OllamaError(f"Ollama rejected the request ({e.code}): {detail}") from e
+    except urllib.error.URLError as e:
+        raise OllamaError(
+            f"Can't reach the local Ollama server at {OLLAMA_URL}. Make sure 'ollama serve' is running "
+            f"and the model is available (ollama pull {OLLAMA_MODEL})."
+        ) from e
+    except TimeoutError as e:
+        raise OllamaError("The local AI assistant took too long to respond.") from e
+    except json.JSONDecodeError as e:
+        raise OllamaError("The local AI assistant returned an unreadable response.") from e
+
+    message = (body.get("message") or {}).get("content", "").strip()
+    if not message:
+        raise OllamaError("The local AI assistant returned an empty response.")
+    return message
 
 
 def _parse_month(month_str):
@@ -240,3 +289,83 @@ def export_pdf():
         mimetype='application/pdf',
         headers={'Content-Disposition': f'attachment; filename=finflow-report-{month_str}.pdf'}
     )
+
+
+@reports_bp.route('/chat', methods=['POST'])
+@login_required
+@limiter.limit('20 per minute')
+def report_chat():
+    """Ask a question about the signed-in user's own monthly report, answered by a locally-run
+    Ollama model. Only this user's already-scoped report JSON is sent as context -- never raw
+    transaction rows, never another user's data -- and the model's reply is returned as plain
+    text, never executed or interpreted as anything but a chat message."""
+    data = request.get_json(silent=True) or {}
+
+    user_message = (data.get("message") or "").strip()
+    if not user_message:
+        return error_response("message is required.", 400)
+    if len(user_message) > CHAT_MESSAGE_MAX_LEN:
+        return error_response(f"message must be {CHAT_MESSAGE_MAX_LEN} characters or fewer.", 400)
+
+    history = data.get("history") or []
+    if not isinstance(history, list):
+        return error_response("history must be a list.", 400)
+    clean_history = [
+        {"role": turn.get("role"), "content": str(turn.get("content", ""))[:CHAT_MESSAGE_MAX_LEN]}
+        for turn in history
+        if isinstance(turn, dict) and turn.get("role") in ("user", "assistant") and turn.get("content")
+    ][-CHAT_HISTORY_MAX_TURNS:]
+
+    month_str = data.get("month") or datetime.now().strftime('%Y-%m')
+    year, month = _parse_month(month_str)
+    if year is None:
+        return error_response("month must be YYYY-MM", 400)
+
+    report = _build_monthly_report(current_user.id, year, month) or {
+        "month": month_str, "total_spent": 0, "total_spent_last_month": 0,
+        "pct_change_vs_last_month": None, "biggest_category": None, "categories": [],
+        "subscription_count": 0, "subscription_annual_cost": 0, "alert_count": 0, "goals": []
+    }
+
+    account_ids = user_account_ids(current_user.id)
+    recommendations = build_recommendations(build_financial_profile(g.db, current_user.id, account_ids))
+
+    system_prompt = (
+        "You are FinFlow's money coach for young earners. Below are THIS user's own monthly report "
+        "and a ranked list of data-driven recommendations that FinFlow already computed. Ground every "
+        "answer in those numbers -- never invent or guess a figure that isn't there. All amounts are "
+        "in Indian Rupees; write them with the ₹ symbol, never $.\n"
+        "When the user asks what to do, or for advice: give a clear, prioritised recommendation (most "
+        "important first), explain the reasoning in one line using their numbers, and end with one "
+        "concrete next step. Use the recommendations list as your backbone, and mention trade-offs "
+        "when there are any. Be concise and plain-spoken.\n"
+        "Limits: you may discuss budgeting, saving, emergency funds, debt, subscriptions and goals, "
+        "and describe general categories of long-term options (e.g. index funds, PPF, fixed deposits) "
+        "in educational terms. Never recommend a specific stock, fund, or product, never give tax "
+        "advice, and never promise returns. For decisions about investing or taxes, say a SEBI-registered "
+        "adviser or chartered accountant can personalise it. If the data doesn't answer the question, say so.\n\n"
+        f"Report data (JSON): {json.dumps(report, default=str)}\n\n"
+        f"Recommendations (JSON, ranked): {json.dumps(recommendations, default=str)}"
+    )
+    messages = [{"role": "system", "content": system_prompt}, *clean_history, {"role": "user", "content": user_message}]
+
+    try:
+        reply = _call_ollama(messages)
+    except OllamaError as e:
+        return error_response(str(e), 503)
+
+    return jsonify({"reply": reply, "month": report["month"], "model": OLLAMA_MODEL})
+
+
+@reports_bp.route('/advice', methods=['GET'])
+@login_required
+def advice():
+    """Ranked, data-driven money suggestions for the signed-in user. Pure rules over their own
+    transactions -- works without Ollama, and is the same list the chat assistant is given."""
+    account_ids = user_account_ids(current_user.id)
+    profile = build_financial_profile(g.db, current_user.id, account_ids)
+    return jsonify({
+        "recommendations": build_recommendations(profile),
+        "disclaimer": "General budgeting guidance based on your own transactions, not personalised "
+                      "investment or tax advice.",
+    })

@@ -38,6 +38,34 @@
             </div>
         </div>
     </div>
+
+    <div class="card mt-3">
+        <h3>Suggested next steps</h3>
+        <p style="color: var(--text-secondary);">Ranked from your own last three full months. General budgeting guidance, not personalised investment or tax advice.</p>
+        <div id="adviceList"></div>
+    </div>
+
+    <div class="card mt-3">
+        <h3>Ask your money coach</h3>
+        <p style="color: var(--text-secondary);">
+            Answered by a local AI model (Ollama) running on this machine &mdash; it only sees your report
+            and the suggestions above, nothing else.
+        </p>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">What should I do first with my money?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">Where can I cut spending?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">Am I saving enough?</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="askSuggested(this)">Can I afford a ₹20,000 purchase next month?</button>
+        </div>
+
+        <div id="chatLog" style="max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;"></div>
+        <div id="chatError" class="alert alert-danger py-2 d-none"></div>
+
+        <form id="chatForm" class="d-flex gap-2" onsubmit="sendChatMessage(event)">
+            <input type="text" id="chatInput" class="form-control" placeholder="e.g. Why did my spending go up this month?" maxlength="2000" autocomplete="off">
+            <button type="submit" id="chatSendBtn" class="btn btn-primary">Send</button>
+        </form>
+    </div>
 </div>
 
 <script>
@@ -96,5 +124,83 @@ function renderReport(data) {
 }
 
 loadReport();
+
+const PRIORITY_BADGE = { high: 'danger', medium: 'warning', low: 'secondary' };
+
+async function loadAdvice() {
+    const box = document.getElementById('adviceList');
+    try {
+        const res = await apiFetch('/api/v1/reports/advice');
+        const data = await res.json();
+        if (!res.ok) throw new Error();
+        box.innerHTML = data.recommendations.map(r => `<div class="border-bottom py-2">
+            <span class="badge bg-${PRIORITY_BADGE[r.priority] || 'secondary'} me-2">${escapeHtml(r.priority)}</span>
+            <strong>${escapeHtml(r.title)}</strong>
+            <div style="color: var(--text-secondary);">${escapeHtml(r.detail)}</div></div>`).join('');
+    } catch (e) {
+        box.innerHTML = '<div class="state-placeholder">Suggestions are unavailable right now.</div>';
+    }
+}
+loadAdvice();
+
+function askSuggested(btn) {
+    document.getElementById('chatInput').value = btn.innerText;
+    document.getElementById('chatForm').requestSubmit();
+}
+
+// --- Report chat (local Ollama) ---
+let chatHistory = [];
+
+function appendChatBubble(role, text) {
+    const log = document.getElementById('chatLog');
+    const bubble = document.createElement('div');
+    const isUser = role === 'user';
+    bubble.style.cssText = `align-self: ${isUser ? 'flex-end' : 'flex-start'}; max-width: 80%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap;`
+        + (isUser ? 'background: var(--accent-primary); color: #fff;' : 'background: var(--bg-secondary); border: 1px solid var(--border-color);');
+    bubble.innerText = text;
+    log.appendChild(bubble);
+    log.scrollTop = log.scrollHeight;
+    return bubble;
+}
+
+async function sendChatMessage(event) {
+    event.preventDefault();
+    const input = document.getElementById('chatInput');
+    const message = input.value.trim();
+    if (!message) return;
+
+    const sendBtn = document.getElementById('chatSendBtn');
+    const errorBox = document.getElementById('chatError');
+    errorBox.classList.add('d-none');
+
+    appendChatBubble('user', message);
+    input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
+    const thinking = appendChatBubble('assistant', 'Thinking…');
+
+    const month = document.getElementById('monthPicker').value || currentMonth();
+
+    try {
+        const res = await apiFetch('/api/v1/reports/chat', {
+            method: 'POST',
+            body: JSON.stringify({ message, history: chatHistory, month })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(errorMessage(data, "Couldn't reach the local AI assistant."));
+
+        thinking.innerText = data.reply;
+        chatHistory.push({ role: 'user', content: message });
+        chatHistory.push({ role: 'assistant', content: data.reply });
+    } catch (err) {
+        thinking.remove();
+        errorBox.innerText = err.message || "Couldn't reach the local AI assistant. Make sure Ollama is running (ollama serve).";
+        errorBox.classList.remove('d-none');
+    } finally {
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+    }
+}
 </script>
 {% endblock %}
