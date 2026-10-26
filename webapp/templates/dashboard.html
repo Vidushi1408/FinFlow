@@ -10,6 +10,12 @@
 <div id="errorState" class="state-placeholder d-none">Couldn't load your dashboard. <button class="btn btn-sm btn-outline-secondary" onclick="loadDashboard()">Retry</button></div>
 
 <div id="dashboardContent" class="d-none">
+    <div class="card mb-3" id="coachCard">
+        <h3>Money coach: your top suggestions</h3>
+        <div id="coachTop"><div class="state-placeholder">Loading suggestions&hellip;</div></div>
+        <a href="/reports" class="small">See all suggestions and ask the coach &rarr;</a>
+    </div>
+
     <div class="row g-3 mb-1">
         <div class="col-6 col-lg-3">
             <div class="card text-center">
@@ -156,6 +162,23 @@ function renderDashboard(data) {
             <span>${escapeHtml(s.merchant_id)}</span><span>${formatINR(s.typical_amount)} on ${escapeHtml(s.next_expected_date)}</span></div>`).join('')
         : '<div class="state-placeholder">Nothing due this week.</div>';
 }
+
+async function loadCoachTop() {
+    const box = document.getElementById('coachTop');
+    try {
+        const res = await apiFetch('/api/v1/reports/advice');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const badge = { high: 'danger', medium: 'warning', low: 'secondary' };
+        box.innerHTML = data.recommendations.slice(0, 2).map(r => `<div class="py-1">
+            <span class="badge bg-${badge[r.priority] || 'secondary'} me-2">${escapeHtml(r.priority)}</span>
+            <strong>${escapeHtml(r.title)}</strong>
+            <div style="color: var(--text-secondary);">${escapeHtml(r.detail)}</div></div>`).join('');
+    } catch (e) {
+        box.innerHTML = '<div class="state-placeholder">Suggestions are unavailable right now.</div>';
+    }
+}
+loadCoachTop();
 
 loadDashboard();
 </script>

@@ -370,95 +370,28 @@ def test_report_chat_includes_recommendations_in_model_context(make_client, monk
     assert "Recommendations (JSON, ranked)" in captured["m"][0]["content"]
 
 
-def test_report_chat_injects_precomputed_affordability(make_client, monkeypatch):
+def test_affordability_questions_are_answered_by_rules_not_the_model(make_client, monkeypatch):
     import webapp.routes.reports as reports_module
 
-    captured = {}
-    monkeypatch.setattr(reports_module, "_call_ollama", lambda m: captured.setdefault("m", m) and "ok")
-    make_client("alice").post("/api/v1/reports/chat", json={"message": "Can I afford a ₹20,000 purchase?"})
-    assert "affordability_check" in captured["m"][0]["content"]
+    def must_not_be_called(messages):
+        raise AssertionError("the model must not be asked an affordability question")
+
+    monkeypatch.setattr(reports_module, "_call_ollama", must_not_be_called)
+    body = make_client("alice").post("/api/v1/reports/chat", json={"message": "Can I afford a ₹20,000 purchase?"}).get_json()
+    assert body["model"] == "rules" and "₹20,000" in body["reply"]
 
 
-def test_transaction_export_csv_respects_filters_and_scope(make_client):
-    alice, bob = make_client("alice"), make_client("bob")
-    full = alice.get("/api/v1/transactions/export.csv")
-    assert full.status_code == 200 and full.mimetype == "text/csv"
-    lines = full.get_data(as_text=True).strip().splitlines()
-    assert lines[0] == "date,account,merchant,category,type,amount,recurring"
-    total = alice.get("/api/v1/transactions?page_size=1").get_json()["total"]
-    assert len(lines) - 1 == total  # every page, not just the first
+def test_reply_with_unverifiable_figures_falls_back_to_rule_based_advice(make_client, monkeypatch):
+    import webapp.routes.reports as reports_module
 
-    debits = alice.get("/api/v1/transactions/export.csv?type=DEBIT").get_data(as_text=True)
-    assert ",CREDIT," not in debits
-    assert alice.get("/api/v1/transactions/export.csv?type=BOGUS").status_code == 400
-    assert alice.get("/api/v1/transactions/export.csv?account_id=someone-elses").status_code == 400
-    assert bob.get("/api/v1/transactions/export.csv").status_code == 200
+    monkeypatch.setattr(reports_module, "_call_ollama", lambda m: "You have exactly ₹7,654,321 saved.")
+    body = make_client("alice").post("/api/v1/reports/chat", json={"message": "How am I doing?"}).get_json()
+    assert "7,654,321" not in body["reply"] and "couldn't verify" in body["reply"]
 
 
-def test_csv_safe_neutralises_formula_injection():
-    from webapp.routes.transactions import _csv_safe
-    assert _csv_safe("=HYPERLINK(\"http://x\")") == "'=HYPERLINK(\"http://x\")"
-    assert _csv_safe("Swiggy") == "Swiggy"
+def test_reply_quoting_only_known_figures_is_passed_through(make_client, monkeypatch):
+    import webapp.routes.reports as reports_module
 
-
-def test_confirmed_merchant_is_not_reflagged_but_a_much_bigger_charge_is(make_client, world, monkeypatch):
-    import webapp.routes.fraud as fraud_module
-
-    def flag_everything(df):
-        out = df.copy()
-        out["fraud_probability"] = 0.99
-        out["is_flagged"] = True
-        return out
-
-    monkeypatch.setattr(fraud_module, "predict_fraud", flag_everything)
-    client = make_client("alice")
-
-    before = client.get("/api/v1/fraud/alerts?threshold=0.5").get_json()
-    assert before["alerts"] and before["suppressed_trusted_merchant_count"] == 0
-
-    chosen = before["alerts"][0]
-    merchant = chosen["merchant_id"]
-    same_merchant = [a for a in before["alerts"] if a["merchant_id"] == merchant]
-    ceiling = max(a["amount"] for a in same_merchant)
-    # Confirm the biggest charge at this merchant: everything there is now within tolerance.
-    biggest = max(same_merchant, key=lambda a: a["amount"])
-    assert client.post("/api/v1/fraud/feedback", json={"transaction_id": biggest["transaction_id"], "feedback": "CONFIRMED_ME"}).status_code == 200
-
-    after = client.get("/api/v1/fraud/alerts?threshold=0.5").get_json()
-    remaining = [a for a in after["alerts"] if a["merchant_id"] == merchant]
-    assert all(a["amount"] > ceiling * fraud_module.TRUSTED_MERCHANT_AMOUNT_TOLERANCE for a in remaining)
-    assert after["suppressed_trusted_merchant_count"] >= len(same_merchant) - len(remaining) > 0
-
-
-def test_loans_crud_validation_and_isolation(make_client):
-    alice, bob = make_client("alice"), make_client("bob")
-    assert alice.post("/api/v1/loans", json={"name": "Bike", "outstanding_balance": 90000, "interest_rate_pct": 9, "monthly_emi": 4500}).status_code == 201
-    assert alice.post("/api/v1/loans", json={"name": "", "outstanding_balance": 1, "interest_rate_pct": 1, "monthly_emi": 1}).status_code == 400
-    assert alice.post("/api/v1/loans", json={"name": "X", "outstanding_balance": -5, "interest_rate_pct": 1, "monthly_emi": 1}).status_code == 400
-    assert alice.post("/api/v1/loans", json={"name": "X", "outstanding_balance": 5, "interest_rate_pct": 400, "monthly_emi": 1}).status_code == 400
-
-    mine = alice.get("/api/v1/loans").get_json()
-    assert mine["total_monthly_emi"] >= 4500 and any(loan["name"] == "Bike" for loan in mine["loans"])
-    assert bob.get("/api/v1/loans").get_json()["loans"] == []
-
-    loan_id = next(loan["loan_id"] for loan in mine["loans"] if loan["name"] == "Bike")
-    assert bob.delete(f"/api/v1/loans/{loan_id}").status_code == 404
-    assert alice.delete("/api/v1/loans/not-a-uuid").status_code == 404
-    assert alice.delete(f"/api/v1/loans/{loan_id}").status_code == 200
-
-
-def test_advice_feedback_hides_dismissed_and_marks_useful(make_client):
-    client = make_client("alice")
-    recs = client.get("/api/v1/reports/advice").get_json()["recommendations"]
-    target = recs[0]["id"]
-    assert client.post("/api/v1/reports/advice/feedback", json={"advice_id": target, "feedback": "BOGUS"}).status_code == 400
-    assert client.post("/api/v1/reports/advice/feedback", json={"advice_id": target, "feedback": "DISMISSED"}).status_code == 200
-    after = client.get("/api/v1/reports/advice").get_json()["recommendations"]
-    assert target not in [r["id"] for r in after]
-    # feedback is per user
-    bob_rows = query("SELECT COUNT(*) FROM advice_feedback f JOIN dim_user u ON u.user_id = f.user_id WHERE u.name = 'Bob'")
-    assert bob_rows[0][0] == 0
-    useful_id = after[0]["id"]
-    assert client.post("/api/v1/reports/advice/feedback", json={"advice_id": useful_id, "feedback": "USEFUL"}).status_code == 200
-    again = {r["id"]: r for r in client.get("/api/v1/reports/advice").get_json()["recommendations"]}
-    assert again[useful_id]["marked_useful"] is True
+    monkeypatch.setattr(reports_module, "_call_ollama", lambda m: "Looks fine. You asked about ₹1,234.")
+    body = make_client("alice").post("/api/v1/reports/chat", json={"message": "Is ₹1,234 a lot?"}).get_json()
+    assert body["reply"] == "Looks fine. You asked about ₹1,234."

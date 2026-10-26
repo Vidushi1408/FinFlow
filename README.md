@@ -268,6 +268,13 @@ remote service. `ollama pull llama3.2:3b && ollama serve`, then optionally set `
 the host's Ollama via `host.docker.internal`. Without Ollama the chat shows a clear error and the
 "Suggested next steps" card (`GET /api/v1/reports/advice`) still works.
 
+**How the coach stays honest.** The advice and every number come from rules over your own data. Purchase
+questions ("can I afford ₹20,000?") are answered by those rules without asking the model. For everything
+else, replies are checked: `$` is rewritten to `₹`, and a reply quoting any rupee figure that isn't in your data
+is replaced by the rule-based suggestions. `python scripts/eval_coach.py` runs a fixed question set against
+your Ollama model and grades the raw replies; small models (the 3B default) do fail the figures check
+regularly, which is why the guard exists, and `llama3.1:8b` does noticeably better.
+
 ### Tests
 
 ```bash

@@ -14,7 +14,8 @@ from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from webapp.extensions import limiter
 from webapp.services.advisor import (
-    PRIORITY_ORDER, build_financial_profile, build_recommendations, check_reply, computed_facts_for,
+    PRIORITY_ORDER, affordability_reply, build_financial_profile, build_recommendations, computed_facts_for, fix_currency,
+    grounded_fallback, unverified_figures,
 )
 from etl.transform.clean import summarize_recurring_series
 from ml.fraud_model import predict_fraud
@@ -85,6 +86,35 @@ def _recommendations_for_user(profile):
     return kept or [{"id": "all-clear", "priority": "low", "title": "Nothing new right now",
                      "detail": "You've dismissed the current suggestions. New ones appear as your numbers change.",
                      "monthly_impact": None, "marked_useful": False}]
+
+
+def build_coach_system_prompt(report, recommendations, computed=None):
+    """The money-coach system prompt. Kept as a function so scripts/eval_coach.py tests exactly what ships."""
+    system_prompt = (
+        "You are FinFlow's money coach for young earners. Below are THIS user's own monthly report "
+        "and a ranked list of data-driven recommendations that FinFlow already computed. Ground every "
+        "answer in those numbers -- never invent or guess a figure that isn't there. All amounts are "
+        "in Indian Rupees; write them with the ₹ symbol, never $. Do no arithmetic of your own: only "
+        "quote figures that appear below, and if a number isn't there, describe it in words.\n"
+        "When the user asks what to do, or for advice: give a clear, prioritised recommendation (most "
+        "important first), explain the reasoning in one line using their numbers, and end with one "
+        "concrete next step. Use the recommendations list as your backbone, and mention trade-offs "
+        "when there are any. Be concise and plain-spoken.\n"
+        "Limits: you may discuss budgeting, saving, emergency funds, debt, subscriptions and goals, "
+        "and describe general categories of long-term options (e.g. index funds, PPF, fixed deposits) "
+        "in educational terms. Never recommend a specific stock, fund, or product, never give tax "
+        "advice, and never promise returns. If asked for a specific stock, fund or product, decline in "
+        "one sentence and say a SEBI-registered adviser can help with that. For tax questions, say a "
+        "chartered accountant can personalise it. If the data doesn't answer the question, say so.\n\n"
+        f"Report data (JSON): {json.dumps(report, default=str)}\n\n"
+        f"Recommendations (JSON, ranked): {json.dumps(recommendations, default=str)}"
+    )
+    if computed:
+        system_prompt += (
+            "\n\nPre-computed answer for this exact question (use these figures verbatim, do not "
+            f"recalculate): {json.dumps(computed, default=str)}"
+        )
+    return system_prompt
 
 
 def _parse_month(month_str):
@@ -355,28 +385,10 @@ def report_chat():
     recommendations = _recommendations_for_user(profile)
     computed = computed_facts_for(user_message, profile)
 
-    system_prompt = (
-        "You are FinFlow's money coach for young earners. Below are THIS user's own monthly report "
-        "and a ranked list of data-driven recommendations that FinFlow already computed. Ground every "
-        "answer in those numbers -- never invent or guess a figure that isn't there. All amounts are "
-        "in Indian Rupees; write them with the ₹ symbol, never $.\n"
-        "When the user asks what to do, or for advice: give a clear, prioritised recommendation (most "
-        "important first), explain the reasoning in one line using their numbers, and end with one "
-        "concrete next step. Use the recommendations list as your backbone, and mention trade-offs "
-        "when there are any. Be concise and plain-spoken.\n"
-        "Limits: you may discuss budgeting, saving, emergency funds, debt, subscriptions and goals, "
-        "and describe general categories of long-term options (e.g. index funds, PPF, fixed deposits) "
-        "in educational terms. Never recommend a specific stock, fund, or product, never give tax "
-        "advice, and never promise returns. For decisions about investing or taxes, say a SEBI-registered "
-        "adviser or chartered accountant can personalise it. If the data doesn't answer the question, say so.\n\n"
-        f"Report data (JSON): {json.dumps(report, default=str)}\n\n"
-        f"Recommendations (JSON, ranked): {json.dumps(recommendations, default=str)}"
-    )
-    if computed:
-        system_prompt += (
-            "\n\nPre-computed answer for this exact question (use these figures verbatim, do not "
-            f"recalculate): {json.dumps(computed, default=str)}"
-        )
+    if "affordability_check" in computed:
+        return jsonify({"reply": affordability_reply(computed, recommendations), "month": report["month"],
+                        "model": "rules"})
+    system_prompt = build_coach_system_prompt(report, recommendations, computed)
     messages = [{"role": "system", "content": system_prompt}, *clean_history, {"role": "user", "content": user_message}]
 
     try:
@@ -384,7 +396,9 @@ def report_chat():
     except OllamaError as e:
         return error_response(str(e), 503)
 
-    reply = check_reply(reply, system_prompt, user_message)
+    reply = fix_currency(reply)
+    if unverified_figures(reply, system_prompt, user_message):
+        reply = grounded_fallback(recommendations)
     return jsonify({"reply": reply, "month": report["month"], "model": OLLAMA_MODEL})
 
 

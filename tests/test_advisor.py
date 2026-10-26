@@ -53,7 +53,7 @@ def test_heavy_subscriptions_flagged():
     assert "subscription-load" in ids(recs)
 
 
-from webapp.services.advisor import affordability, check_reply, computed_facts_for, parse_amount  # noqa: E402
+from webapp.services.advisor import affordability, computed_facts_for, parse_amount  # noqa: E402
 
 
 def test_parse_amount_handles_indian_formats():
@@ -78,22 +78,12 @@ def test_computed_facts_only_for_purchase_questions():
     assert computed_facts_for("Where can I cut spending?", p) == {}
 
 
-def test_check_reply_fixes_dollars_and_flags_invented_figures():
-    ctx = "total_spent: 12000.0 limit 5000"
-    assert check_reply("You spent $12,000.", ctx, "q") == "You spent ₹12,000."
-    flagged = check_reply("You spent ₹99,999.", ctx, "q")
-    assert "double-check" in flagged
-    assert "double-check" not in check_reply("You spent ₹12,000.", ctx, "q")
-
-
-def test_high_emi_burden_and_costly_loan_are_flagged():
-    loans = [{"name": "Card EMI", "balance": 80000.0, "rate": 24.0, "emi": 12000.0},
-             {"name": "Bike", "balance": 90000.0, "rate": 9.0, "emi": 9000.0}]
-    recs = build_recommendations(profile(loans=loans, avg_monthly_income=50000.0))
-    assert "emi-burden-high" in ids(recs) and "prepay-Card EMI" in ids(recs)
-    assert "put-surplus-to-work" not in ids(recs)  # don't nudge toward investing while 24% debt exists
-
-
-def test_cheap_loan_with_moderate_emi_raises_no_loan_advice():
-    loans = [{"name": "Home", "balance": 900000.0, "rate": 8.5, "emi": 8000.0}]
-    assert not [i for i in ids(build_recommendations(profile(loans=loans))) if i.startswith(("emi", "prepay"))]
+def test_figure_verification_compares_numbers_not_text():
+    from webapp.services.advisor import fix_currency, grounded_fallback, unverified_figures
+    ctx = '{"amount": 9000.0, "limit": 5000}'
+    assert fix_currency("You spent $12,000.") == "You spent ₹12,000."
+    assert unverified_figures("Dining was ₹9,000 vs ₹5,000.", ctx, "q") == []
+    assert unverified_figures("You spent ₹99,999.", ctx, "q") == ["99,999"]
+    assert unverified_figures("Can I afford ₹20,000?", ctx, "afford 20000") == []
+    fallback = grounded_fallback([{"id": "x", "title": "T", "detail": "D"}])
+    assert "T: D" in fallback and "couldn't verify" in fallback

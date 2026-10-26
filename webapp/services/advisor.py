@@ -309,23 +309,40 @@ def computed_facts_for(message, profile):
     return facts
 
 
-def check_reply(reply, context_text, user_message):
-    """Fix '$' (all amounts are INR) and flag any ₹ figure that appears nowhere in the data the
-    model was given or in the user's own message, so an invented number doesn't pass silently."""
-    reply = re.sub(r"\$\s?(?=\d)", "₹", reply)
-    known = {n.replace(",", "") for n in re.findall(r"\d[\d,]*(?:\.\d+)?", context_text + " " + user_message)}
-    known_rounded = set()
-    for n in known:
-        try:
-            known_rounded.add(str(int(round(float(n)))))
-        except ValueError:
-            pass
-    unknown = []
-    for n in re.findall(r"₹\s?(\d[\d,]*(?:\.\d+)?)", reply):
-        clean = n.replace(",", "")
-        if clean not in known and str(int(round(float(clean)))) not in known_rounded:
-            unknown.append(n)
-    # Derived figures (sums, differences) are legitimate, so this is a prompt to double-check, not a block.
-    if unknown:
-        reply += "\n\n(Note: some figures above, e.g. ₹" + unknown[0] + ", were worked out by the assistant rather than read straight from your data. Please double-check them.)"
-    return reply
+def affordability_reply(facts, recommendations):
+    """Plain-language answer to "can I afford X?" built from the computed numbers alone. A small local
+    model was seen contradicting its own pre-computed verdict, so this question never goes to the model."""
+    a = facts["affordability_check"]
+    lines = [f"For a {_inr(a['purchase'])} purchase: {a['verdict']}."]
+    lines.append(f"Your balance would go from {_inr(a['balance_after'] + a['purchase'])} to {_inr(a['balance_after'])}"
+                 + (f", which covers about {a['buffer_months_after']} months of your usual spending." if a["buffer_months_after"] is not None else "."))
+    if a["months_of_surplus_to_recover"]:
+        lines.append(f"At your current monthly surplus, you'd earn it back in about {a['months_of_surplus_to_recover']} months.")
+    top = next((r for r in recommendations if r["id"] not in ("on-track", "all-clear", "need-history")), None)
+    if top:
+        lines.append(f"Worth keeping in mind: {top['title'].lower()}.")
+    return " ".join(lines)
+
+
+def _canon(number_text):
+    return round(float(number_text.replace(",", "")), 2)
+
+
+def unverified_figures(reply, context_text, user_message):
+    """₹ amounts in `reply` that appear nowhere in the data the model was given or in the user's own message
+    (compared numerically, so 9,000 matches 9000.0)."""
+    known = {_canon(n) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", context_text + " " + user_message)}
+    return [n for n in re.findall(r"₹\s?(\d[\d,]*(?:\.\d+)?)", reply) if _canon(n) not in known]
+
+
+def grounded_fallback(recommendations):
+    """Deterministic reply used when the model's answer contained figures that can't be verified."""
+    top = [r for r in recommendations if r["id"] not in ("on-track", "all-clear", "need-history")][:3] or recommendations[:1]
+    body = "\n".join(f"{i}. {r['title']}: {r['detail']}" for i, r in enumerate(top, 1))
+    return ("I couldn't verify some numbers in my own answer, so here are the checked suggestions "
+            f"from your data instead:\n{body}")
+
+
+def fix_currency(reply):
+    """All amounts are INR; a model that writes $12,000 means ₹12,000."""
+    return re.sub(r"\$\s?(?=\d)", "₹", reply)
