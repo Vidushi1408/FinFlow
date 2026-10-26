@@ -478,8 +478,8 @@ shown either way, so the forecast never claims false precision.
   values, but it's still a heuristic, not a calibrated economic model — a
   freelancer persona can occasionally end a year with a negative balance,
   which is intentionally left in as a realistic (not universal) outcome.
-- **No PDF/CSV export of the transaction ledger itself** — only the monthly
-  report exports (CSV/PDF); a raw transaction export isn't implemented.
+- **Ledger export is CSV only.** The filtered transaction ledger exports as CSV; there's no PDF of it
+  (only the monthly report has a PDF).
 - **Balances of imported statements need a balance column or your input.**
   If the CSV has a running-balance column, the opening balance is worked out
   from it (and only trusted if it reconciles with the amounts). Otherwise the
@@ -488,14 +488,19 @@ shown either way, so the forecast never claims false precision.
 - **UPI payments to people stay in the generic `UPI` category.** The payee is
   parsed out of the narration and matched against known merchants, but a
   person's name can't be told apart from a small shop without more context.
-  Recategorize one payment and check "all from this payee" to fix every
-  payment to them at once, and future uploads.
+  The Transactions page lists your five biggest unlabelled payees; pick a
+  category once and every payment to them (and future uploads) follows.
 
 ## Future work
 
-- OpenAPI/Swagger docs for `/api/v1/*` (see `docs/openapi.json` — a starting
-  point, not exhaustively covering every endpoint yet)
-- Per-user model fine-tuning once a user has enough of their own history
-- Retrain the fraud model on user feedback ("This was me" / "Report as
-  suspicious") — the `fraud_feedback` table already captures this, it's just
-  not fed back into training yet
+- Per-user model fine-tuning once a user has enough of their own history, including per-user alert
+  thresholds
+- Retrain the fraud model on feedback. Today "This was me" suppresses repeat alerts for that merchant
+  and the Model Info page reports how you judged your alerts, but the labels don't feed training (an
+  unsupervised Isolation Forest has no natural place for them; a supervised stage on top would)
+- Email verification at signup, and an error-tracking integration (e.g. Sentry)
+- Enforce the `script-src` CSP: move the ~26 inline event handlers into static JS (see Security notes)
+- Real, anonymised bank statements added to `tests/fixtures/bank_statements/` whenever an import fails;
+  the current fixtures are reconstructions of the layouts, not real exports
+- A larger local model (or a hosted one, if you accept data leaving the machine) for richer coaching;
+  the rules and the figure check stay either way

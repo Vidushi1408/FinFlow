@@ -420,3 +420,32 @@ def test_whatif_questions_are_answered_by_rules(make_client, monkeypatch):
                  "AND category_id NOT IN ('OTHER') GROUP BY category_id ORDER BY SUM(amount) DESC LIMIT 1")[0][0]
     body = client.post("/api/v1/reports/chat", json={"message": f"What if I cut {name} by 25%?"}).get_json()
     assert body["model"] == "rules" and "25%" in body["reply"]
+
+
+def test_unknown_payees_lists_generic_upi_spend_and_one_apply_fixes_the_payee(make_client, world):
+    from tests.conftest import query
+    import etl.load.db as db_module
+
+    alice = make_client("alice")
+    aid = world["alice"]["account_id"]
+    conn = db_module.get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO dim_merchant (merchant_id, merchant_name, category) VALUES ('RIYA SHARMA','RIYA SHARMA','UPI') ON CONFLICT DO NOTHING")
+        for i in range(2):
+            cur.execute("""INSERT INTO fact_transactions (transaction_id, account_id, merchant_id, category_id, date_id, transaction_ts, amount, transaction_type)
+                           VALUES (%s,%s,'RIYA SHARMA','UPI', %s, %s, 9999, 'DEBIT')""",
+                        (f"upi-test-{i}-{aid}"[:64], aid, 20260105, f"2026-01-0{5 + i} 10:00:00"))
+        conn.commit()
+    finally:
+        conn.close()
+
+    payees = alice.get("/api/v1/transactions/unknown-payees").get_json()["payees"]
+    top = next(p for p in payees if p["merchant_id"] == "RIYA SHARMA")
+    assert top["transaction_count"] == 2 and top["total_spent"] == pytest.approx(19998)
+
+    patched = alice.patch(f"/api/v1/transactions/{top['sample_transaction_id']}/category", json={"category_id": "OTHER", "create_rule": True})
+    assert patched.status_code == 200
+    assert query("SELECT COUNT(*) FROM fact_transactions WHERE merchant_id = 'RIYA SHARMA' AND category_id = 'UPI'")[0][0] == 0
+    assert "RIYA SHARMA" not in [p["merchant_id"] for p in alice.get("/api/v1/transactions/unknown-payees").get_json()["payees"]]
+    assert "RIYA SHARMA" not in [p["merchant_id"] for p in make_client("bob").get("/api/v1/transactions/unknown-payees").get_json()["payees"]]

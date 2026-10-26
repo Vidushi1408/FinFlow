@@ -1877,6 +1877,16 @@
           }
         }
       }
+    },
+    "/transactions/unknown-payees": {
+      "get": {
+        "summary": "Top payees whose spending is still in the generic UPI category",
+        "responses": {
+          "200": {
+            "description": "payees[] with total_spent, transaction_count and a sample_transaction_id"
+          }
+        }
+      }
     }
   }
 }

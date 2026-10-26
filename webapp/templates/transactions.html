@@ -24,6 +24,7 @@
         </div>
     </div>
 
+    <div id="unknownPayees" class="alert alert-info py-2 d-none"></div>
     <div class="mb-3"><a id="exportLink" class="btn btn-sm btn-outline-secondary" href="/api/v1/transactions/export.csv" onclick="this.href='/api/v1/transactions/export.csv?' + buildQuery(1, true)">Export filtered ledger (CSV)</a></div>
     <div id="uploadPanel" class="mb-3"></div>
     <div id="txNotice" class="alert alert-success py-2 d-none"></div>
@@ -64,6 +65,29 @@ async function loadCategories() {
     categories = data.budgets.map(b => b.category_id);
     const list = document.getElementById('categoryOptions');
     list.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}">`).join('');
+}
+
+async function loadUnknownPayees() {
+    const box = document.getElementById('unknownPayees');
+    const res = await apiFetch('/api/v1/transactions/unknown-payees');
+    if (!res.ok) return;
+    const payees = (await res.json()).payees;
+    if (!payees.length) { box.classList.add('d-none'); return; }
+    box.innerHTML = `<strong>Sort your biggest unlabelled UPI payees</strong> &mdash; one choice fixes every payment to them, now and in future uploads.`
+        + payees.map(p => `<div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+            <span style="min-width: 220px;">${escapeHtml(p.merchant_id)} &middot; ${formatINR(p.total_spent)} (${p.transaction_count}&times;)</span>
+            <input list="categoryOptions" class="form-control form-control-sm" style="width: 150px;" placeholder="Category">
+            <button class="btn btn-sm btn-primary" data-tid="${escapeHtml(p.sample_transaction_id)}">Apply</button></div>`).join('');
+    box.classList.remove('d-none');
+    box.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
+        const cat = btn.previousElementSibling.value.trim().toUpperCase();
+        if (!cat) return;
+        const res = await apiFetch(`/api/v1/transactions/${btn.dataset.tid}/category`, {
+            method: 'PATCH', body: JSON.stringify({ category_id: cat, create_rule: true })
+        });
+        if (res.ok) { loadUnknownPayees(); loadTransactions(1); }
+        else alert(errorMessage(await res.json(), 'Could not save category.'));
+    }));
 }
 
 function buildQuery(page, forExport = false) {
@@ -182,6 +206,7 @@ document.getElementById('uploadInput').addEventListener('change', function () {
 });
 
 loadCategories();
+loadUnknownPayees();
 loadTransactions(1);
 </script>
 {% endblock %}

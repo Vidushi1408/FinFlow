@@ -116,6 +116,28 @@ def list_transactions():
     })
 
 
+@transactions_bp.route('/unknown-payees', methods=['GET'])
+@login_required
+def unknown_payees():
+    """The payees behind the most still-generic 'UPI' spending, biggest first, each with one sample
+    transaction id so the UI can categorize the whole payee in a single step (PATCH with create_rule)."""
+    account_ids = user_account_ids(current_user.id)
+    if not account_ids:
+        return jsonify({"payees": []})
+    rows = g.db.execute(
+        text("""
+            SELECT merchant_id, SUM(amount), COUNT(*), (ARRAY_AGG(transaction_id ORDER BY transaction_ts DESC))[1]
+            FROM fact_transactions
+            WHERE account_id = ANY(:aids) AND category_id = 'UPI' AND transaction_type = 'DEBIT'
+            GROUP BY merchant_id ORDER BY SUM(amount) DESC LIMIT 5
+        """), {"aids": account_ids}
+    ).fetchall()
+    return jsonify({"payees": [
+        {"merchant_id": r[0], "total_spent": float(r[1]), "transaction_count": int(r[2]), "sample_transaction_id": r[3]}
+        for r in rows
+    ]})
+
+
 @transactions_bp.route('/<transaction_id>/category', methods=['PATCH'])
 @login_required
 def update_transaction_category(transaction_id):
