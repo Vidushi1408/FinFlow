@@ -388,3 +388,54 @@ def test_unknown_payee_helper_suggests_the_category_of_a_similar_known_payee(imp
     payees = send.client.get("/api/v1/transactions/unknown-payees").get_json()["payees"]
     suggestion = next(p for p in payees if p["merchant_id"] == "XQVLORNTZ")
     assert suggestion["suggested_category"] == "GROCERY" and suggestion["suggested_because"] == "XQVLORNT"
+
+
+def test_backfill_merges_old_raw_narration_merchants_without_touching_ids_or_totals(import_as, pg_db):
+    """Simulate an old import (merchant_id = raw narration with its reference), then run the backfill."""
+    from scripts.backfill_merchant_ids import run
+
+    user, send = import_as()
+    send("/upload", UPI_STATEMENT)
+    (account,) = _accounts(user)
+    ids_before = sorted(r[0] for r in query("SELECT transaction_id FROM fact_transactions WHERE account_id = %s", (account,)))
+    total_before = float(query("SELECT SUM(amount) FROM fact_transactions WHERE account_id = %s", (account,))[0][0])
+
+    import etl.load.db as db_module
+    conn = db_module.get_connection()
+    try:
+        cur = conn.cursor()
+        raws = [f"UPI-SWIGGY-swiggy@okhdfcbank-HDFC0000001-5240435{n}"[:50] for n in (6111, 7222, 8333)]
+        for raw in raws:
+            cur.execute("INSERT INTO dim_merchant (merchant_id, merchant_name, category) VALUES (%s, %s, 'FOOD')", (raw, raw))
+        cur.execute("SELECT transaction_id FROM fact_transactions WHERE account_id = %s ORDER BY transaction_ts", (account,))
+        for (tid,), raw in zip(cur.fetchall(), raws):
+            cur.execute("UPDATE fact_transactions SET merchant_id = %s WHERE transaction_id = %s", (raw, tid))
+        cur.execute("INSERT INTO subscription_override (user_id, account_id, merchant_id, status) VALUES (%s, %s, %s, 'CANCEL_CANDIDATE')",
+                    (user, account, raws[0]))
+        conn.commit()
+    finally:
+        conn.close()
+    assert query("SELECT COUNT(DISTINCT merchant_id) FROM fact_transactions WHERE account_id = %s", (account,))[0][0] == 3
+
+    engine = create_engine(f"postgresql://{db_module.DB_USER}:{db_module.DB_PASSWORD}@{db_module.DB_HOST}:{db_module.DB_PORT}/{pg_db}")
+    session = sessionmaker(bind=engine)()
+    try:
+        dry = run(session, dry_run=True)
+        assert dry["merchants_to_rewrite"] == 3 and dry["rows_affected"] == 3
+        assert dry["distinct_merchants_after"] <= dry["distinct_merchants_before"] - 2        # three raw ids collapse into one (or into an existing SWIGGY)
+        assert query("SELECT COUNT(DISTINCT merchant_id) FROM fact_transactions WHERE account_id = %s", (account,))[0][0] == 3  # untouched
+
+        done = run(session)
+        assert done["rows_affected"] == 3
+        session.expire_all()
+        assert run(session)["merchants_to_rewrite"] == 0                      # idempotent
+    finally:
+        session.close()
+        engine.dispose()
+
+    assert query("SELECT DISTINCT merchant_id FROM fact_transactions WHERE account_id = %s", (account,)) == [("SWIGGY",)]
+    assert sorted(r[0] for r in query("SELECT transaction_id FROM fact_transactions WHERE account_id = %s", (account,))) == ids_before
+    assert float(query("SELECT SUM(amount) FROM fact_transactions WHERE account_id = %s", (account,))[0][0]) == total_before
+    assert query("SELECT merchant_id, status FROM subscription_override WHERE account_id = %s", (account,)) == [("SWIGGY", "CANCEL_CANDIDATE")]
+    assert query("SELECT COUNT(*) FROM dim_merchant WHERE merchant_id LIKE 'UPI-SWIGGY%%'")[0][0] == 0   # orphaned raw rows removed
+    assert send("/upload", UPI_STATEMENT).get_json()["transactions_added"] == 0                          # ids intact: no duplicates

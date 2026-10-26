@@ -275,6 +275,15 @@ database (it creates and drops its own; your data is untouched): sign up, upload
 balances, subscriptions, alerts, forecast, reports, budgets/goals/loans, recategorising, exports, the coach, and
 logout/login, failing on any console error, CSP violation or HTTP error. Screenshots go to `smoke_shots/`.
 
+### Cleaning up older imports
+
+Statements imported before merchant names were cleaned stored the raw narration (reference number included) as the
+merchant, so one merchant shows up as many. New imports are clean; to fix existing rows run
+`python scripts/backfill_merchant_ids.py --dry-run` to see what would change, then
+`python scripts/backfill_merchant_ids.py`. It takes a `pg_dump` backup first (use `--no-backup` to skip), rewrites only
+imported-statement accounts, leaves transaction ids alone (so re-uploads still dedupe), verifies row counts and totals
+before committing, and is safe to re-run.
+
 ### Money coach setup (optional)
 
 The chat on the Reports page needs a local [Ollama](https://ollama.com) server; nothing is sent to any
