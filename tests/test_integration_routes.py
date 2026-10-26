@@ -377,3 +377,25 @@ def test_report_chat_injects_precomputed_affordability(make_client, monkeypatch)
     monkeypatch.setattr(reports_module, "_call_ollama", lambda m: captured.setdefault("m", m) and "ok")
     make_client("alice").post("/api/v1/reports/chat", json={"message": "Can I afford a ₹20,000 purchase?"})
     assert "affordability_check" in captured["m"][0]["content"]
+
+
+def test_transaction_export_csv_respects_filters_and_scope(make_client):
+    alice, bob = make_client("alice"), make_client("bob")
+    full = alice.get("/api/v1/transactions/export.csv")
+    assert full.status_code == 200 and full.mimetype == "text/csv"
+    lines = full.get_data(as_text=True).strip().splitlines()
+    assert lines[0] == "date,account,merchant,category,type,amount,recurring"
+    total = alice.get("/api/v1/transactions?page_size=1").get_json()["total"]
+    assert len(lines) - 1 == total  # every page, not just the first
+
+    debits = alice.get("/api/v1/transactions/export.csv?type=DEBIT").get_data(as_text=True)
+    assert ",CREDIT," not in debits
+    assert alice.get("/api/v1/transactions/export.csv?type=BOGUS").status_code == 400
+    assert alice.get("/api/v1/transactions/export.csv?account_id=someone-elses").status_code == 400
+    assert bob.get("/api/v1/transactions/export.csv").status_code == 200
+
+
+def test_csv_safe_neutralises_formula_injection():
+    from webapp.routes.transactions import _csv_safe
+    assert _csv_safe("=HYPERLINK(\"http://x\")") == "'=HYPERLINK(\"http://x\")"
+    assert _csv_safe("Swiggy") == "Swiggy"

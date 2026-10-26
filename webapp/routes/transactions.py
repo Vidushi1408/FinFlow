@@ -1,4 +1,7 @@
-from flask import Blueprint, jsonify, request, g
+import csv
+import io
+
+from flask import Blueprint, Response, jsonify, request, g
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from webapp.db_utils import user_account_ids
@@ -8,15 +11,9 @@ from etl.transform.clean import merchant_key
 transactions_bp = Blueprint('transactions', __name__, url_prefix='/api/v1/transactions')
 
 
-@transactions_bp.route('', methods=['GET'])
-@login_required
-def list_transactions():
-    account_ids = user_account_ids(current_user.id)
-    if not account_ids:
-        return jsonify({"total": 0, "page": 1, "page_size": 0, "transactions": []})
-
-    page = max(request.args.get('page', default=1, type=int), 1)
-    page_size = min(max(request.args.get('page_size', default=25, type=int), 1), 200)
+def _build_filters(account_ids):
+    """WHERE clause + bound params for the ledger's filters, shared by the list and export routes.
+    Returns (where_clause, params, error_response); error_response is None when the filters are valid."""
     search = request.args.get('search', default='', type=str).strip()
     category = request.args.get('category', default=None, type=str)
     account_id = request.args.get('account_id', default=None, type=str)
@@ -27,7 +24,7 @@ def list_transactions():
     amount_max = request.args.get('amount_max', default=None, type=float)
 
     if tx_type and tx_type not in ('DEBIT', 'CREDIT'):
-        return error_response("type must be DEBIT or CREDIT", 400)
+        return None, None, error_response("type must be DEBIT or CREDIT", 400)
 
     filters = ["f.account_id = ANY(:account_ids)"]
     params = {"account_ids": account_ids}
@@ -40,7 +37,7 @@ def list_transactions():
         params["category"] = category
     if account_id:
         if account_id not in account_ids:
-            return error_response("Unknown account", 400)
+            return None, None, error_response("Unknown account", 400)
         filters.append("f.account_id = :account_id")
         params["account_id"] = account_id
     if tx_type:
@@ -62,7 +59,22 @@ def list_transactions():
     # `filters` only ever holds fixed string literals appended above (never anything built from
     # `search`/`category`/etc directly) -- every actual value flows through `params` as a bound
     # :placeholder. See tests/test_integration_routes.py for injection-attempt tests against this.
-    where_clause = " AND ".join(filters)
+    return " AND ".join(filters), params, None
+
+
+@transactions_bp.route('', methods=['GET'])
+@login_required
+def list_transactions():
+    account_ids = user_account_ids(current_user.id)
+    if not account_ids:
+        return jsonify({"total": 0, "page": 1, "page_size": 0, "transactions": []})
+
+    page = max(request.args.get('page', default=1, type=int), 1)
+    page_size = min(max(request.args.get('page_size', default=25, type=int), 1), 200)
+
+    where_clause, params, err = _build_filters(account_ids)
+    if err:
+        return err
 
     count_sql = f"SELECT COUNT(*) FROM fact_transactions f WHERE {where_clause}"  # nosec B608 - see comment above
     total = g.db.execute(text(count_sql), params).scalar()
@@ -166,3 +178,38 @@ def update_transaction_category(transaction_id):
         "transaction_id": transaction_id, "category_id": category_id,
         "rule_created": create_rule, "transactions_updated": similar_updated if create_rule else 1
     })
+
+
+def _csv_safe(value):
+    """Stop spreadsheet apps from running a merchant name like '=HYPERLINK(...)' as a formula."""
+    value = "" if value is None else str(value)
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+
+@transactions_bp.route('/export.csv', methods=['GET'])
+@login_required
+def export_transactions_csv():
+    """The whole filtered ledger (not just one page) as CSV, scoped to the caller's own accounts."""
+    account_ids = user_account_ids(current_user.id)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["date", "account", "merchant", "category", "type", "amount", "recurring"])
+
+    if account_ids:
+        where_clause, params, err = _build_filters(account_ids)
+        if err:
+            return err
+        export_sql = f"""
+            SELECT f.transaction_ts, f.account_id, f.merchant_id, f.category_id,
+                   f.transaction_type, f.amount, f.is_recurring
+            FROM fact_transactions f
+            WHERE {where_clause}
+            ORDER BY f.transaction_ts DESC
+        """  # nosec B608 - where_clause is built only from fixed literals, see _build_filters
+        for r in g.db.execute(text(export_sql), params):
+            writer.writerow([r[0], _csv_safe(r[1]), _csv_safe(r[2]), _csv_safe(r[3]), r[4], float(r[5]), bool(r[6])])
+
+    return Response(
+        output.getvalue(), mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=finflow-transactions.csv'}
+    )

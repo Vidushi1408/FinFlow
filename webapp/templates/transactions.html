@@ -24,6 +24,7 @@
         </div>
     </div>
 
+    <div class="mb-3"><a id="exportLink" class="btn btn-sm btn-outline-secondary" href="/api/v1/transactions/export.csv" onclick="this.href='/api/v1/transactions/export.csv?' + buildQuery(1, true)">Export filtered ledger (CSV)</a></div>
     <div id="uploadPanel" class="mb-3"></div>
     <div id="txNotice" class="alert alert-success py-2 d-none"></div>
 
@@ -65,8 +66,8 @@ async function loadCategories() {
     list.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}">`).join('');
 }
 
-function buildQuery(page) {
-    const params = new URLSearchParams({ page, page_size: PAGE_SIZE });
+function buildQuery(page, forExport = false) {
+    const params = forExport ? new URLSearchParams() : new URLSearchParams({ page, page_size: PAGE_SIZE });
     const search = document.getElementById('fSearch').value.trim();
     const type = document.getElementById('fType').value;
     const from = document.getElementById('fFrom').value;
