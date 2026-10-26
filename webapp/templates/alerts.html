@@ -15,6 +15,8 @@
     </div>
 </div>
 
+<div id="thresholdNote" class="alert alert-info py-2 d-none"></div>
+
 <div id="loadingState" class="state-placeholder">Checking for anything wrong&hellip;</div>
 <div id="errorState" class="state-placeholder d-none">Couldn't load alerts. <button class="btn btn-sm btn-outline-secondary" data-click="loadAlerts">Retry</button></div>
 <div id="emptyState" class="state-placeholder d-none">Nothing looks wrong right now.</div>
@@ -34,6 +36,14 @@ async function loadAlerts() {
         if (!res.ok) throw new Error('failed');
         const data = await res.json();
         document.getElementById('loadingState').classList.add('d-none');
+
+        const note = document.getElementById('thresholdNote');
+        if (data.threshold_source === 'personal') {
+            note.innerText = `Your alert cutoff was raised to ${data.threshold.toFixed(2)} because of what's normal in your own history, so you only see charges that are unusual for you.`;
+            note.classList.remove('d-none');
+        } else {
+            note.classList.add('d-none');
+        }
 
         if (data.alerts.length === 0) {
             document.getElementById('emptyState').classList.remove('d-none');

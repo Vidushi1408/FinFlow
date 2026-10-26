@@ -475,7 +475,11 @@ shown either way, so the forecast never claims false precision.
   by design (matches typical fraud/forecasting setups where you don't have
   enough history per new user to train individually) — but it means a
   newly-onboarded user's alerts reflect population-level patterns until they
-  have their own transaction history.
+  have their own transaction history. Once a user has about 200 scored debits, the **alert cutoff**
+  (not the model) is personalised: raised to just above what their own normal activity scores, never
+  lowered below their chosen sensitivity and capped at 0.97 so extreme outliers always alert
+  (`webapp/services/alert_threshold.py`; the Alerts page says when it applied). The model itself is
+  still trained once, globally.
 - **Generator income/spend calibration is approximate.** Spend is anchored to
   each persona's income (`target_spend_ratio` in `data_generator/generate_mock_data.py`),
   which keeps totals realistic across a wide range of `--transactions`
@@ -497,8 +501,8 @@ shown either way, so the forecast never claims false precision.
 
 ## Future work
 
-- Per-user model fine-tuning once a user has enough of their own history, including per-user alert
-  thresholds
+- Per-user model fine-tuning once a user has enough of their own history (the alert *cutoff* is already
+  personalised; the model is not)
 - Retrain the fraud model on feedback. Today "This was me" suppresses repeat alerts for that merchant
   and the Model Info page reports how you judged your alerts, but the labels don't feed training (an
   unsupervised Isolation Forest has no natural place for them; a supervised stage on top would)

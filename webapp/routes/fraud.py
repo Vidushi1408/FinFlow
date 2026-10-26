@@ -5,10 +5,13 @@ import pandas as pd
 from ml.fraud_model import predict_fraud
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
+from webapp.services.alert_threshold import effective_threshold
 
 fraud_bp = Blueprint('fraud', __name__, url_prefix='/api/v1/fraud')
 
 TRUSTED_MERCHANT_AMOUNT_TOLERANCE = 1.5
+ALERT_WINDOW_ROWS = 200      # most recent debits an alert can come from
+HISTORY_ROWS = 2000          # recent debits scored to learn this user's own normal level
 
 
 def _build_user_profile(account_ids):
@@ -68,7 +71,7 @@ def get_fraud_alerts():
 
     account_ids = user_account_ids(current_user.id)
     if not account_ids:
-        return jsonify({"threshold": threshold, "alerts": []})
+        return jsonify({"threshold": threshold, "threshold_source": "global", "alerts": []})
 
     query = text("""
         SELECT f.transaction_id, f.account_id, f.merchant_id, f.amount, f.transaction_type, d.date, f.transaction_ts
@@ -76,12 +79,12 @@ def get_fraud_alerts():
         JOIN dim_date d ON f.date_id = d.date_id
         WHERE f.transaction_type = 'DEBIT' AND f.account_id = ANY(:account_ids)
         ORDER BY f.transaction_ts DESC
-        LIMIT 200
+        LIMIT :history_rows
     """)
-    df = pd.read_sql(query, g.db.connection(), params={"account_ids": account_ids})
+    df = pd.read_sql(query, g.db.connection(), params={"account_ids": account_ids, "history_rows": HISTORY_ROWS})
 
     if df.empty:
-        return jsonify({"threshold": threshold, "alerts": []})
+        return jsonify({"threshold": threshold, "threshold_source": "global", "alerts": []})
 
     try:
         scored = predict_fraud(df)
@@ -91,7 +94,14 @@ def get_fraud_alerts():
         df['fraud_probability'] = 0.0
         df['is_flagged'] = False
 
-    flagged = df[df['fraud_probability'] >= threshold]
+    # Personalise: the slider/sensitivity is the floor; once there is enough history the cutoff rises to
+    # just above this user's own normal level (never below the floor). `personalize=0` returns raw results.
+    threshold_source = "global"
+    if request.args.get('personalize', default='1') != '0':
+        threshold, threshold_source = effective_threshold(df['fraud_probability'], threshold)
+
+    flagged = df.head(ALERT_WINDOW_ROWS)
+    flagged = flagged[flagged['fraud_probability'] >= threshold]
 
     # Feedback already given by this user, so alerts they've dismissed/confirmed aren't re-shown as pending.
     feedback_rows = g.db.execute(
@@ -136,6 +146,7 @@ def get_fraud_alerts():
 
     return jsonify({
         "threshold": threshold,
+        "threshold_source": threshold_source,
         "alerts": alerts,
         "suppressed_trusted_merchant_count": suppressed
     })

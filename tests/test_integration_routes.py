@@ -469,3 +469,28 @@ def test_transaction_pdf_export_and_rupee_text(make_client, tmp_path):
             path.write_bytes(data)
             text_out = subprocess.run(["pdftotext", str(path), "-"], capture_output=True, text=True, timeout=30).stdout
             assert "Rs." in text_out and "₹" not in text_out, name
+
+
+def test_alert_cutoff_personalises_with_enough_history_and_can_be_switched_off(make_client, monkeypatch):
+    import numpy as np
+    import webapp.routes.fraud as fraud_module
+    from webapp.services.alert_threshold import MIN_HISTORY
+
+    def spread_scores(df):
+        out = df.copy()
+        out["fraud_probability"] = np.linspace(0.96, 0.55, len(df))   # this user's "normal" already scores high
+        out["is_flagged"] = out["fraud_probability"] >= 0.8
+        return out
+
+    monkeypatch.setattr(fraud_module, "predict_fraud", spread_scores)
+    client = make_client("alice")
+    raw = client.get("/api/v1/fraud/alerts?threshold=0.5&personalize=0").get_json()
+    personal = client.get("/api/v1/fraud/alerts?threshold=0.5").get_json()
+
+    assert raw["threshold_source"] == "global" and raw["threshold"] == 0.5
+    history_rows = client.get("/api/v1/transactions?type=DEBIT&page_size=1").get_json()["total"]
+    if history_rows < MIN_HISTORY:
+        pytest.skip("seeded demo history is shorter than the personalisation minimum")
+    assert personal["threshold_source"] == "personal" and personal["threshold"] > 0.5
+    assert 0 < len(personal["alerts"]) < len(raw["alerts"])
+    assert all(a["fraud_probability"] >= personal["threshold"] for a in personal["alerts"])
