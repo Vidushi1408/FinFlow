@@ -51,3 +51,36 @@ def test_heavy_subscriptions_flagged():
     subs = [{"merchant_id": "StreamCo", "cadence": "monthly", "typical_amount": 500.0, "annual_cost": 72000.0}]
     recs = build_recommendations(profile(subscriptions=subs, subscription_annual_cost=72000.0))
     assert "subscription-load" in ids(recs)
+
+
+from webapp.services.advisor import affordability, check_reply, computed_facts_for, parse_amount  # noqa: E402
+
+
+def test_parse_amount_handles_indian_formats():
+    assert parse_amount("can I afford ₹20,000?") == 20000
+    assert parse_amount("buy a phone for 45k") == 45000
+    assert parse_amount("a 1.5 lakh trip") == 150000
+    assert parse_amount("how am I doing?") is None
+
+
+def test_affordability_verdicts():
+    p = profile(balance=100000.0, avg_monthly_spend=30000.0)
+    assert "comfortably" in affordability(p, 5000)["verdict"]
+    assert "below the 3-month" in affordability(p, 30000)["verdict"]
+    assert "under one month" in affordability(p, 80000)["verdict"]
+    assert "not affordable" in affordability(p, 150000)["verdict"]
+    assert affordability(p, 20000)["months_of_surplus_to_recover"] == 1.0
+
+
+def test_computed_facts_only_for_purchase_questions():
+    p = profile()
+    assert "affordability_check" in computed_facts_for("Can I afford a ₹20,000 purchase?", p)
+    assert computed_facts_for("Where can I cut spending?", p) == {}
+
+
+def test_check_reply_fixes_dollars_and_flags_invented_figures():
+    ctx = "total_spent: 12000.0 limit 5000"
+    assert check_reply("You spent $12,000.", ctx, "q") == "You spent ₹12,000."
+    flagged = check_reply("You spent ₹99,999.", ctx, "q")
+    assert "double-check" in flagged
+    assert "double-check" not in check_reply("You spent ₹12,000.", ctx, "q")

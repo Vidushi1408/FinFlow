@@ -13,7 +13,9 @@ from sqlalchemy import text
 from webapp.db_utils import user_account_ids
 from webapp.errors import error_response
 from webapp.extensions import limiter
-from webapp.services.advisor import build_financial_profile, build_recommendations
+from webapp.services.advisor import (
+    build_financial_profile, build_recommendations, check_reply, computed_facts_for,
+)
 from etl.transform.clean import summarize_recurring_series
 from ml.fraud_model import predict_fraud
 import pandas as pd
@@ -328,7 +330,9 @@ def report_chat():
     }
 
     account_ids = user_account_ids(current_user.id)
-    recommendations = build_recommendations(build_financial_profile(g.db, current_user.id, account_ids))
+    profile = build_financial_profile(g.db, current_user.id, account_ids)
+    recommendations = build_recommendations(profile)
+    computed = computed_facts_for(user_message, profile)
 
     system_prompt = (
         "You are FinFlow's money coach for young earners. Below are THIS user's own monthly report "
@@ -347,6 +351,11 @@ def report_chat():
         f"Report data (JSON): {json.dumps(report, default=str)}\n\n"
         f"Recommendations (JSON, ranked): {json.dumps(recommendations, default=str)}"
     )
+    if computed:
+        system_prompt += (
+            "\n\nPre-computed answer for this exact question (use these figures verbatim, do not "
+            f"recalculate): {json.dumps(computed, default=str)}"
+        )
     messages = [{"role": "system", "content": system_prompt}, *clean_history, {"role": "user", "content": user_message}]
 
     try:
@@ -354,6 +363,7 @@ def report_chat():
     except OllamaError as e:
         return error_response(str(e), 503)
 
+    reply = check_reply(reply, system_prompt, user_message)
     return jsonify({"reply": reply, "month": report["month"], "model": OLLAMA_MODEL})
 
 

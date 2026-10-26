@@ -176,7 +176,7 @@ def test_report_chat_sends_trimmed_history_to_the_model(make_client, monkeypatch
     import webapp.routes.reports as reports_module
 
     captured = {}
-    monkeypatch.setattr(reports_module, "_call_ollama", lambda messages: captured.setdefault("messages", messages) or "ok")
+    monkeypatch.setattr(reports_module, "_call_ollama", lambda messages: captured.setdefault("messages", messages) and "ok")
 
     client = make_client("alice")
     history = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i}"} for i in range(20)]
@@ -368,3 +368,12 @@ def test_report_chat_includes_recommendations_in_model_context(make_client, monk
     monkeypatch.setattr(reports_module, "_call_ollama", lambda m: captured.setdefault("m", m) and "ok")
     make_client("alice").post("/api/v1/reports/chat", json={"message": "What should I do?"})
     assert "Recommendations (JSON, ranked)" in captured["m"][0]["content"]
+
+
+def test_report_chat_injects_precomputed_affordability(make_client, monkeypatch):
+    import webapp.routes.reports as reports_module
+
+    captured = {}
+    monkeypatch.setattr(reports_module, "_call_ollama", lambda m: captured.setdefault("m", m) and "ok")
+    make_client("alice").post("/api/v1/reports/chat", json={"message": "Can I afford a ₹20,000 purchase?"})
+    assert "affordability_check" in captured["m"][0]["content"]

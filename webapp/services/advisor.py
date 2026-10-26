@@ -4,6 +4,7 @@ The numbers and the rules live here, in plain Python, so every suggestion is rep
 testable; the local LLM only explains and discusses them. All figures are derived from the
 caller's own accounts. This is general budgeting guidance, not regulated investment or tax advice.
 """
+import re
 from datetime import date
 
 import pandas as pd
@@ -217,3 +218,77 @@ def build_recommendations(p):
 
     recs.sort(key=lambda r: (PRIORITY_ORDER[r["priority"]], -(r["monthly_impact"] or 0)))
     return recs
+
+
+# --- Question-aware helpers: numbers the chat model should be handed, not asked to compute -------
+
+_AMOUNT_RE = re.compile(r"(?:₹|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|lakh|lakhs|lac|l|cr|crore)?\b", re.I)
+_MULT = {"k": 1e3, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "l": 1e5, "cr": 1e7, "crore": 1e7}
+_AFFORD_RE = re.compile(r"\b(afford|buy|purchase|spend|splurge|get a|treat)\b", re.I)
+
+
+def parse_amount(message):
+    """First rupee amount mentioned ('₹20,000', '20k', '1.5 lakh'), or None."""
+    for m in _AMOUNT_RE.finditer(message):
+        value = float(m.group(1).replace(",", ""))
+        unit = (m.group(2) or "").lower()
+        has_marker = bool(re.search(r"₹|rs\.?|inr", m.group(0), re.I))
+        if unit or has_marker or value >= 100:
+            return value * _MULT.get(unit, 1)
+    return None
+
+
+def affordability(profile, amount):
+    """Plain-numbers verdict on a one-off purchase, from the same profile the rules use."""
+    spend, income, balance = profile["avg_monthly_spend"], profile["avg_monthly_income"], profile["balance"]
+    after = balance - amount
+    buffer_after = after / spend if spend > 0 else None
+    monthly_surplus = income - spend
+    if buffer_after is None:
+        verdict = "not enough spending history to judge"
+    elif after < 0:
+        verdict = "not affordable from your current balance"
+    elif buffer_after < 1:
+        verdict = "risky: it would leave under one month of expenses"
+    elif buffer_after < BUFFER_TARGET_MONTHS:
+        verdict = f"possible, but it would drop your buffer below the {BUFFER_TARGET_MONTHS}-month target"
+    else:
+        verdict = f"comfortably affordable; your buffer stays above {BUFFER_TARGET_MONTHS} months"
+    months_to_recover = (amount / monthly_surplus) if monthly_surplus > 0 else None
+    return {
+        "purchase": round(amount, 2), "balance_after": round(after, 2),
+        "buffer_months_after": round(buffer_after, 1) if buffer_after is not None else None,
+        "months_of_surplus_to_recover": round(months_to_recover, 1) if months_to_recover else None,
+        "verdict": verdict,
+    }
+
+
+def computed_facts_for(message, profile):
+    """Deterministic answers for questions the model would otherwise do arithmetic on."""
+    facts = {}
+    amount = parse_amount(message)
+    if amount and _AFFORD_RE.search(message):
+        facts["affordability_check"] = affordability(profile, amount)
+    return facts
+
+
+def check_reply(reply, context_text, user_message):
+    """Fix '$' (all amounts are INR) and flag any ₹ figure that appears nowhere in the data the
+    model was given or in the user's own message, so an invented number doesn't pass silently."""
+    reply = re.sub(r"\$\s?(?=\d)", "₹", reply)
+    known = {n.replace(",", "") for n in re.findall(r"\d[\d,]*(?:\.\d+)?", context_text + " " + user_message)}
+    known_rounded = set()
+    for n in known:
+        try:
+            known_rounded.add(str(int(round(float(n)))))
+        except ValueError:
+            pass
+    unknown = []
+    for n in re.findall(r"₹\s?(\d[\d,]*(?:\.\d+)?)", reply):
+        clean = n.replace(",", "")
+        if clean not in known and str(int(round(float(clean)))) not in known_rounded:
+            unknown.append(n)
+    # Derived figures (sums, differences) are legitimate, so this is a prompt to double-check, not a block.
+    if unknown:
+        reply += "\n\n(Note: some figures above, e.g. ₹" + unknown[0] + ", were worked out by the assistant rather than read straight from your data. Please double-check them.)"
+    return reply
